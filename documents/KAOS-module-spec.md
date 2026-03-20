@@ -46,9 +46,9 @@ Modules need to call kernel functions (`kmalloc`, `serial_printf`, `irq_register
     };
 
 struct kaos_export_entry {
-    const char* name;
-    uint32_t    addr;
-} __attribute__((packed));
+    const char* name;       /* 4 bytes (pointer) */
+    uint32_t    addr;       /* 4 bytes — naturally aligned, no packing needed */
+};
 ```
 
 **Step 2: Add exports to kernel source files.**
@@ -167,13 +167,17 @@ Modules use `kaos_inb`/`kaos_outb` instead of the inline versions.
 Every module must define exactly one instance of this struct, named `kaos_module_info`:
 
 ```c
+/* Module flags — defined outside the struct for clean compilation with -Werror */
+#define KAOS_FLAG_ESSENTIAL  (1 << 0)  /* Cannot be unloaded (drivers) */
+#define KAOS_FLAG_AUTOLOAD   (1 << 1)  /* Load at boot from /modules/ */
+
 typedef struct {
     uint32_t    magic;          /* Must be KAOS_MODULE_MAGIC */
     uint32_t    abi_version;    /* Must match KAOS_ABI_VERSION */
     const char* name;           /* Human-readable module name */
     const char* version;        /* Module version string (e.g., "1.0") */
-    const char* author;         /* Module author */
-    const char* description;    /* One-line description */
+    const char* author;         /* Module author (NULL if not specified) */
+    const char* description;    /* One-line description (NULL if not specified) */
 
     /* Entry points */
     int  (*init)(void);         /* Called after load + relocation. Return 0 = success. */
@@ -184,23 +188,44 @@ typedef struct {
      * NULL = no dependencies. */
     const char** dependencies;
 
-    /* Flags */
+    /* Flags — combination of KAOS_FLAG_* values */
     uint32_t flags;
-    #define KAOS_FLAG_ESSENTIAL  (1 << 0)  /* Cannot be unloaded (drivers) */
-    #define KAOS_FLAG_AUTOLOAD   (1 << 1)  /* Load at boot from /modules/ */
 } kaos_module_info_t;
 
-/* Convenience macro for module authors */
-#define KAOS_MODULE(mod_name, mod_init, mod_cleanup) \
+/* Convenience macro for module authors.
+ * version, author, and description default to NULL — set them
+ * via designated initializers if needed (see full-form example below). */
+#define KAOS_MODULE(mod_name, mod_version, mod_init, mod_cleanup) \
     kaos_module_info_t kaos_module_info = { \
         .magic       = KAOS_MODULE_MAGIC, \
         .abi_version = KAOS_ABI_VERSION, \
         .name        = mod_name, \
+        .version     = mod_version, \
+        .author      = NULL, \
+        .description = NULL, \
         .init        = mod_init, \
         .cleanup     = mod_cleanup, \
         .dependencies = NULL, \
         .flags       = 0, \
     }
+```
+
+**Full-form example** (when you need all fields):
+```c
+static const char* my_deps[] = { "uart_core", NULL };
+
+kaos_module_info_t kaos_module_info = {
+    .magic       = KAOS_MODULE_MAGIC,
+    .abi_version = KAOS_ABI_VERSION,
+    .name        = "usb_host",
+    .version     = "0.1",
+    .author      = "AIOS Team",
+    .description = "USB OHCI host controller driver",
+    .init        = usb_init,
+    .cleanup     = usb_cleanup,
+    .dependencies = my_deps,
+    .flags       = KAOS_FLAG_ESSENTIAL | KAOS_FLAG_AUTOLOAD,
+};
 ```
 
 ---
@@ -218,42 +243,119 @@ The loader handles:
 
 ### Load Sequence
 
+**Step 1: Read file.**
+Read the entire `.kaos` file from ChaosFS into a temporary heap buffer (`kmalloc`). This is the only ChaosFS access — all subsequent parsing operates on the in-memory copy.
+
+**Step 2: Validate ELF header.**
+```c
+Elf32_Ehdr* ehdr = (Elf32_Ehdr*)file_buffer;
+/* Reject if any of these fail: */
+assert(ehdr->e_ident[0..3] == {0x7F, 'E', 'L', 'F'});
+assert(ehdr->e_ident[4] == 1);     /* ELFCLASS32 */
+assert(ehdr->e_ident[5] == 1);     /* ELFDATA2LSB (little-endian) */
+assert(ehdr->e_type == ET_REL);    /* Relocatable, not executable */
+assert(ehdr->e_machine == EM_386); /* i386 */
 ```
-1. Read .kaos file from ChaosFS into a temporary heap buffer
-2. Validate ELF header:
-   - Magic bytes (0x7F 'E' 'L' 'F')
-   - 32-bit (EI_CLASS == ELFCLASS32)
-   - Little-endian (EI_DATA == ELFDATA2LSB)
-   - Relocatable (e_type == ET_REL)
-   - i386 (e_machine == EM_386)
-3. Parse section headers, identify:
-   - .text, .data, .rodata, .bss sections (SHT_PROGBITS / SHT_NOBITS)
-   - .symtab (symbol table)
-   - .strtab (string table)
-   - .rel.text, .rel.data (relocation sections)
-4. Allocate contiguous memory from PMM for all loadable sections:
-   - Compute total size (sum of sh_size for all SHF_ALLOC sections, page-aligned)
-   - pmm_alloc_pages(pages_needed)
-   - Mark as PAGE_RESERVED via heap_mark_reserved()
-   - Map in VMM with PRESENT | WRITABLE
-5. Copy section contents to allocated memory:
-   - For each SHF_ALLOC section: memcpy from file buffer to target address
-   - For .bss (SHT_NOBITS): memset to zero
-   - Record each section's load address (base + offset)
-6. Process relocations:
-   - For each .rel section, iterate relocation entries
-   - For each entry: look up the referenced symbol
-     - If symbol is defined in the module (st_shndx != SHN_UNDEF): compute address from section load base + st_value
-     - If symbol is undefined (st_shndx == SHN_UNDEF): look up via kaos_sym_lookup()
-     - If not found in kernel symbol table: ERROR — unresolved symbol, abort load
-   - Apply relocation:
-     - R_386_32: *target += symbol_addr
-     - R_386_PC32: *target += symbol_addr - target_addr
-7. Find kaos_module_info symbol in module's symbol table
-   - Validate: magic == KAOS_MODULE_MAGIC, abi_version == KAOS_ABI_VERSION
-8. Free the temporary file buffer (no longer needed — sections are copied)
-9. Return success — module is ready for init
+
+**Step 3: Parse section headers.**
+```c
+Elf32_Shdr* shdrs = (Elf32_Shdr*)(file_buffer + ehdr->e_shoff);
+/* Walk all e_shnum sections. Identify by sh_type: */
+/*   SHT_PROGBITS (1): .text, .data, .rodata — code and initialized data */
+/*   SHT_NOBITS (8): .bss — zero-initialized data */
+/*   SHT_SYMTAB (2): symbol table — exactly one expected */
+/*   SHT_STRTAB (3): string table — referenced by symtab's sh_link */
+/*   SHT_REL (9): relocation sections (.rel.text, .rel.data) */
+/* The section name string table is at shdrs[ehdr->e_shstrndx] */
 ```
+
+**Step 4: Allocate memory for loadable sections.**
+```c
+/* Sum sh_size for all sections with SHF_ALLOC flag set.
+ * Respect sh_addralign for each section (pad between sections).
+ * Round total up to page boundary. */
+uint32_t total_size = 0;
+for each SHF_ALLOC section:
+    total_size = ALIGN_UP(total_size, section->sh_addralign);
+    total_size += section->sh_size;
+
+uint32_t pages = (total_size + PAGE_SIZE - 1) / PAGE_SIZE;
+uint32_t load_base = pmm_alloc_pages(pages);
+if (load_base == 0) → ERROR: out of memory, abort
+heap_mark_reserved(load_base, pages);
+vmm_map_range(load_base, load_base, pages * PAGE_SIZE, PTE_PRESENT | PTE_WRITABLE);
+```
+
+**Step 5: Copy sections to allocated memory.**
+```c
+uint32_t offset = 0;
+for each SHF_ALLOC section:
+    offset = ALIGN_UP(offset, section->sh_addralign);
+    section_load_addr[i] = load_base + offset;
+    if (section->sh_type == SHT_NOBITS):
+        memset(load_base + offset, 0, section->sh_size);     /* .bss */
+    else:
+        memcpy(load_base + offset,                            /* .text, .data, .rodata */
+               file_buffer + section->sh_offset,
+               section->sh_size);
+    offset += section->sh_size;
+```
+
+**Step 6: Process relocations.**
+```c
+for each SHT_REL section:
+    /* sh_info = index of section being relocated (e.g., .text) */
+    /* sh_link = index of associated symbol table */
+    Elf32_Rel* rels = (Elf32_Rel*)(file_buffer + rel_section->sh_offset);
+    int num_rels = rel_section->sh_size / sizeof(Elf32_Rel);
+
+    for (int r = 0; r < num_rels; r++):
+        uint32_t sym_idx = ELF32_R_SYM(rels[r].r_info);
+        uint32_t rel_type = ELF32_R_TYPE(rels[r].r_info);
+        Elf32_Sym* sym = &symtab[sym_idx];
+
+        /* Resolve symbol address */
+        uint32_t sym_addr;
+        if (sym->st_shndx != SHN_UNDEF):
+            /* Symbol defined in module — address = section load base + value */
+            sym_addr = section_load_addr[sym->st_shndx] + sym->st_value;
+        else:
+            /* Symbol undefined — look up in kernel symbol table */
+            const char* sym_name = strtab + sym->st_name;
+            sym_addr = kaos_sym_lookup(sym_name);
+            if (sym_addr == 0):
+                serial_printf("[kaos] unresolved symbol: %s\n", sym_name);
+                → FREE memory, abort load, return -1
+
+        /* Apply relocation */
+        uint32_t target_section = rel_section->sh_info;
+        uint32_t* target = (uint32_t*)(section_load_addr[target_section]
+                                        + rels[r].r_offset);
+        if (rel_type == R_386_32):
+            *target += sym_addr;              /* absolute: S + A */
+        else if (rel_type == R_386_PC32):
+            *target += sym_addr - (uint32_t)target;  /* PC-relative: S + A - P */
+        else:
+            serial_printf("[kaos] unsupported reloc type %u\n", rel_type);
+            → abort load
+```
+
+**Step 7: Find and validate module info.**
+```c
+/* Scan symbol table for global symbol named "kaos_module_info" */
+for each symbol in symtab:
+    if name == "kaos_module_info" && ELF32_ST_BIND(st_info) == STB_GLOBAL:
+        kaos_module_info_t* info = (kaos_module_info_t*)
+            (section_load_addr[sym->st_shndx] + sym->st_value);
+        assert(info->magic == KAOS_MODULE_MAGIC);
+        assert(info->abi_version == KAOS_ABI_VERSION);
+        break;
+/* If not found → abort: "module has no kaos_module_info symbol" */
+```
+
+**Step 8: Free temporary file buffer.** `kfree(file_buffer)`. All section data has been copied to the PMM-allocated region.
+
+**Step 9: Return success.** Module is fully loaded and relocated. The caller (module manager) will now call `info->init()`.
 
 ### ELF Structures Used
 
@@ -365,6 +467,7 @@ typedef enum {
 ### Module Registry
 
 ```c
+/* Defined in kaos_types.h */
 #define KAOS_MAX_MODULES  32
 
 struct kaos_module {
@@ -387,7 +490,12 @@ static int module_count;
 ### Manager API
 
 ```c
-/* Initialize module manager. Must be called after ChaosFS is mounted. */
+/* Initialize module manager.
+ * Boot ordering contract: called AFTER ChaosFS is mounted (Phase 4) and
+ * AFTER all core drivers are initialized (Phase 3). If Lua VM is available,
+ * it must be initialized BEFORE kaos_load_all() so Lua binding modules can
+ * call kaos_lua_register() from their init().
+ * See foundation spec kernel_main boot sequence for exact placement. */
 init_result_t kaos_init(void);
 
 /* Scan /modules/ and auto-load all .kaos files with KAOS_FLAG_AUTOLOAD. */
@@ -416,7 +524,30 @@ During `kaos_load_all("/modules/")`:
    - Attempt full load (ELF parse, relocate, validate info)
    - If `KAOS_FLAG_AUTOLOAD` is set in the module info, call `init()`
    - Log result to serial
-3. Dependency ordering: if module A depends on module B, B is loaded first. Circular dependencies are detected and rejected (log error, skip both).
+3. Dependency ordering uses depth-first loading with a visited-state array to detect cycles:
+
+```c
+/* Per-module load state during dependency resolution */
+#define DEP_UNVISITED  0  /* not yet seen */
+#define DEP_IN_PROGRESS 1 /* currently in the recursion stack (grey) */
+#define DEP_DONE       2  /* fully loaded (black) */
+
+static uint8_t dep_state[KAOS_MAX_MODULES];
+
+/* kaos_load_recursive(path):
+ *   1. If dep_state[module] == DEP_DONE: already loaded, return success
+ *   2. If dep_state[module] == DEP_IN_PROGRESS: CIRCULAR DEPENDENCY detected
+ *      → log error naming the cycle, return -1, skip this module
+ *   3. Set dep_state[module] = DEP_IN_PROGRESS
+ *   4. For each dependency in module_info.dependencies[]:
+ *      → call kaos_load_recursive(dep_path)
+ *      → if it fails, this module also fails
+ *   5. Call module init()
+ *   6. Set dep_state[module] = DEP_DONE
+ */
+```
+
+This is standard DFS cycle detection. A module whose dep_state is DEP_IN_PROGRESS when encountered again means we're in a cycle (A→B→A). The cycle is logged with both module names and both modules are skipped.
 
 ### Shell Commands
 
@@ -472,31 +603,41 @@ static void hello_cleanup(void) {
     serial_printf("[hello] Goodbye from KAOS module!\n");
 }
 
-KAOS_MODULE("hello", hello_init, hello_cleanup);
+KAOS_MODULE("hello", "1.0", hello_init, hello_cleanup);
 ```
 
 ### Example: Lua Binding Module
+
+The real Lua C API requires a `lua_State*` pointer. Since modules can't access it directly, the kernel exports a wrapper that captures the global state internally:
+
+```c
+/* Exported by the Lua subsystem (kernel-side wrapper):
+ *   int kaos_lua_register(const char* name, lua_CFunction func);
+ * This calls lua_register(global_L, name, func) internally.
+ * Modules never touch lua_State* directly. */
+```
 
 ```c
 /* modules/lua_math.c */
 #include <kaos/module.h>
 #include <kaos/kernel.h>
 
-/* These would be exported by the Lua subsystem when it exists */
-extern int lua_register(const char* name, void* func);
+/* Resolved at load time via KAOS_EXPORT in the Lua subsystem */
+extern int kaos_lua_register(const char* name, int (*func)(void*));
 
-static int l_fast_sqrt(/* lua_State* L */) {
-    /* ... */
-    return 1;
+static int l_fast_sqrt(void* L) {
+    /* lua_pushnumber(L, result); */
+    (void)L;
+    return 1;  /* number of return values */
 }
 
 static int lua_math_init(void) {
-    lua_register("fast_sqrt", l_fast_sqrt);
+    kaos_lua_register("fast_sqrt", l_fast_sqrt);
     serial_printf("[lua_math] Registered fast_sqrt\n");
     return 0;
 }
 
-KAOS_MODULE("lua_math", lua_math_init, NULL);
+KAOS_MODULE("lua_math", "1.0", lua_math_init, NULL);
 ```
 
 ---
@@ -661,7 +802,7 @@ modules/                # Module source files (built to .kaos)
 | Max modules | 32 |
 | Memory allocator | PMM (PAGE_RESERVED) |
 | Symbol lookup | Linear scan of `.kaos_export` section |
-| Dependency resolution | Recursive, circular detection |
+| Dependency resolution | DFS with grey/black visited-state cycle detection |
 | Unload safety | Manual (cleanup must deregister all callbacks) |
 | Essential flag | KAOS_FLAG_ESSENTIAL — cannot be unloaded |
 | Auto-load | KAOS_FLAG_AUTOLOAD — loaded at boot from /modules/ |

@@ -1542,7 +1542,7 @@ AIOS-v2/
 │   ├── scheduler_asm.asm          # Context switch (task_switch)
 │   ├── rdtsc.c / rdtsc.h          # High-resolution timestamp counter
 │   ├── fpu.c / fpu.h              # FPU/SSE initialization
-│   └── chaos/                     # ChaosFS (Phase 4)
+│   ├── chaos/                     # ChaosFS (Phase 4)
 │       ├── chaos.h / chaos.c      # Public API, lifecycle, fd table
 │       ├── chaos_types.h          # All on-disk structs
 │       ├── chaos_alloc.c          # Block/inode allocator
@@ -1551,6 +1551,16 @@ AIOS-v2/
 │       ├── chaos_block.c          # Block I/O layer
 │       ├── chaos_format.c         # Format tool
 │       └── chaos_fsck.c           # Consistency checker
+│   └── kaos/                      # KAOS Module System (Phase 6)
+│       ├── kaos.h / kaos.c        # Public API, module manager
+│       ├── kaos_loader.c          # ELF ET_REL loader
+│       ├── kaos_sym.c             # Kernel symbol table
+│       ├── kaos_io_wrappers.c     # Non-inline I/O wrappers
+│       └── kaos_types.h           # ELF structures, module types
+├── include/kaos/                   # Module SDK headers
+│   ├── module.h                   # KAOS_MODULE macro
+│   ├── kernel.h                   # Convenience includes
+│   └── export.h                   # KAOS_EXPORT macro
 ├── renderer/                      # ChaosGL (Phase 5) — compiled with RENDERER_CFLAGS (SSE2)
 │   ├── chaos_gl.c / chaos_gl.h   # Public C API — single include
 │   ├── math.c / math.h           # vec2/3/4, mat4, rect_t

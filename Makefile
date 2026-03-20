@@ -136,8 +136,8 @@ $(BUILDDIR)/os.img: $(BUILDDIR)/stage1.bin $(BUILDDIR)/stage2.bin $(BUILDDIR)/ke
 	dd if=$(BUILDDIR)/stage2.bin of=$(BUILDDIR)/stage2_padded.bin bs=8192 conv=sync 2>/dev/null
 	cat $(BUILDDIR)/stage2_padded.bin >> $(BUILDDIR)/os.img
 	cat $(BUILDDIR)/kernel.elf >> $(BUILDDIR)/os.img
-	@# Pad to 16MB and format ChaosFS at LBA 2048 (1MB offset)
-	truncate -s 16M $(BUILDDIR)/os.img
+	@# Pad to 512MB and format ChaosFS at LBA 2048 (1MB offset)
+	truncate -s 512M $(BUILDDIR)/os.img
 	$(PYTHON) tools/mkfs_chaos.py $(BUILDDIR)/os.img 2048
 	@echo "Disk image: $(BUILDDIR)/os.img ($$(wc -c < $(BUILDDIR)/os.img | tr -d ' ') bytes)"
 

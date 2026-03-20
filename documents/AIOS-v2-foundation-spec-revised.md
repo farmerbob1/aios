@@ -735,331 +735,268 @@ uint32_t heap_get_buddy_used(void);
 
 ### Overview
 
-Preemptive round-robin scheduler with task priorities, FPU state management from day one, proper idle task, clean task lifecycle, and accurate CPU usage accounting.
+Preemptive multitasking with full interrupt infrastructure: GDT with TSS, IDT with 256 entries, CPU exception handlers, hardware IRQ handlers with PIC remapping, PIT timer at 250Hz, FPU/SSE save/restore, and a priority scheduler with context switching and starvation prevention.
 
-### Task Structure
+### Init Order (strict)
+
+```
+gdt_init()          → Install kernel GDT with TSS entry
+idt_init()          → Install 256-entry IDT (empty, loaded with lidt)
+isr_init()          → Wire exception handlers 0-31 into IDT
+irq_init()          → Remap PIC (IRQ0-7→INT32-39, IRQ8-15→INT40-47), wire IRQ stubs
+fpu_init()          → CR0.EM=0, CR0.MP=1, CR4.OSFXSR=1, CR4.OSXMMEXCPT=1, fninit
+timer_init()        → PIT ch0 mode 2, divisor=4773 (250Hz), register IRQ0, unmask IRQ0
+scheduler_init()    → Set up task 0 (kernel), create idle task
+sti                 → Enable interrupts (timer starts, preemption begins)
+rdtsc_calibrate()   → Count TSC cycles over 100 PIT ticks (400ms)
+```
+
+### 2.1 — GDT with TSS (kernel/gdt.c)
+
+The bootloader's GDT has only null + code + data segments. The kernel installs its own GDT with a TSS entry for hardware task state.
+
+```c
+/* 4 GDT entries */
+[0] null descriptor
+[1] kernel code: selector 0x08, access=0x9A, gran=0xCF (base 0, limit 4GB, exec/read, 32-bit)
+[2] kernel data: selector 0x10, access=0x92, gran=0xCF (base 0, limit 4GB, read/write, 32-bit)
+[3] TSS:         selector 0x18, access=0x89, gran=0x00 (32-bit TSS, not busy)
+```
+
+The TSS only uses `esp0` and `ss0=0x10`. `gdt_set_kernel_stack(esp0)` updates `tss.esp0` on every context switch so hardware interrupts during a task use the correct kernel stack top.
+
+After `lgdt`, a far jump to `0x08:` reloads CS, and segment registers are reloaded with `0x10`. `ltr 0x18` loads the TSS.
+
+### 2.2 — IDT (kernel/idt.c)
+
+256-entry IDT, all zeroed initially. `idt_set_gate(num, handler, selector=0x08, type=0x8E)` wires individual entries. ISR and IRQ init functions populate it. Loaded via `lidt`.
+
+### 2.3 — CPU Exception Handlers (kernel/isr_stubs.asm + kernel/isr.c)
+
+NASM macros generate 32 exception stubs:
+- `ISR_NOERRCODE n`: push 0 (dummy error code), push n, jmp common
+- `ISR_ERRCODE n`: push n (CPU already pushed error code), jmp common
+- Error-code exceptions: 8, 10, 11, 12, 13, 14, 17, 21, 29, 30
+
+Common stub: pusha, push segment regs, load kernel segments (0x10), push esp, call `isr_common_handler`, restore segments, popa, add esp 8, iret.
+
+`isr_common_handler(struct registers* regs)` prints exception info + registers to serial, reads CR2 for page faults (#14), then calls `kernel_panic`.
+
+```c
+struct registers {
+    uint32_t gs, fs, es, ds;
+    uint32_t edi, esi, ebp, esp_dummy, ebx, edx, ecx, eax;  /* pusha order */
+    uint32_t int_no, err_code;
+    uint32_t eip, cs, eflags, useresp, ss;  /* CPU-pushed */
+};
+```
+
+### 2.4 — Hardware IRQ Handlers (kernel/irq_stubs.asm + kernel/irq.c)
+
+**PIC remapping:** ICW1-4 sequence remaps IRQ 0-7 → INT 32-39, IRQ 8-15 → INT 40-47. All IRQs masked initially; individual drivers unmask as needed.
+
+16 IRQ stubs (same structure as ISR stubs) call `irq_common_handler(struct registers* regs)`.
+
+**CRITICAL: EOI is sent BEFORE calling the handler.** If the handler calls `schedule()→task_switch()`, the EOI would be deferred until the old task resumes, freezing the timer. Sending EOI first is safe because IF=0 in the interrupt gate (no re-entrance).
+
+```c
+void irq_common_handler(struct registers* regs) {
+    int irq_num = regs->int_no - 32;
+    if (irq_num >= 8) outb(0xA0, 0x20);  /* slave EOI */
+    outb(0x20, 0x20);                      /* master EOI */
+    if (irq_handlers[irq_num]) irq_handlers[irq_num]();
+}
+```
+
+### 2.5 — FPU/SSE Init (kernel/fpu.c)
+
+```c
+void fpu_init(void) {
+    /* CR0: clear EM (bit 2), set MP (bit 1) */
+    /* CR4: set OSFXSR (bit 9), OSXMMEXCPT (bit 10) */
+    /* fninit to initialize FPU state */
+}
+```
+
+Enables fxsave/fxrstor for the scheduler. The kernel itself is compiled with `-mno-sse -mno-mmx -mno-sse2` to prevent compiler-emitted SSE in interrupt handlers. The renderer uses `RENDERER_CFLAGS` with SSE2 enabled.
+
+### 2.6 — PIT Timer (drivers/timer.c)
+
+```c
+#define PIT_FREQUENCY    250   /* Hz — design contract */
+#define PIT_BASE_FREQ    1193182
+
+init_result_t timer_init(void);
+void     timer_handler(void);       /* ticks++, schedule() — called from IRQ0 */
+uint64_t timer_get_ticks(void);     /* 64-bit, interrupt-safe read via pushf/cli/popf */
+uint32_t timer_get_uptime_seconds(void);
+uint32_t timer_get_frequency(void); /* returns PIT_FREQUENCY */
+void     timer_wait(uint32_t ms);   /* hlt loop until target ticks reached */
+```
+
+PIT channel 0, mode 2 (rate generator), divisor = 1193182/250 = 4773.
+
+**64-bit tick counter** eliminates the 32-bit wrap problem (wraps in ~2.3 billion years at 250Hz). Interrupt-safe read uses `pushf/cli/read/popf` (not bare `cli/sti`, which is unsafe from interrupt context).
+
+### 2.7 — RDTSC High-Resolution Timer (kernel/rdtsc.c)
+
+```c
+static inline uint64_t rdtsc(void);    /* inline rdtsc instruction */
+init_result_t rdtsc_calibrate(void);   /* measure TSC over 100 PIT ticks (400ms) */
+uint64_t rdtsc_get_frequency(void);    /* cycles per second */
+uint64_t rdtsc_to_us(uint64_t cycles); /* convert to microseconds */
+```
+
+Calibration runs after `sti` (needs timer interrupts). Waits for a tick boundary, then counts TSC cycles over 100 ticks.
+
+### 2.8 — Task Structure
 
 ```c
 #define MAX_TASKS       32
-#define TASK_STACK_SIZE 16384    /* 16KB per task (v1 was 8KB, too small) */
+#define TASK_STACK_SIZE 16384    /* 16KB per task */
 
-/* Task priorities */
 typedef enum {
-    PRIORITY_HIGH   = 0,   /* 3D renderer, audio — gets scheduled first */
-    PRIORITY_NORMAL = 1,   /* shell, GUI, Lua scripts */
-    PRIORITY_LOW    = 2,   /* background tasks, logging */
-    PRIORITY_IDLE   = 3    /* only the idle task */
+    PRIORITY_HIGH   = 0,
+    PRIORITY_NORMAL = 1,
+    PRIORITY_LOW    = 2,
+    PRIORITY_IDLE   = 3
 } task_priority_t;
 
-/* Task states */
 typedef enum {
     TASK_UNUSED  = 0,
     TASK_READY,
     TASK_RUNNING,
     TASK_SLEEPING,
-    TASK_BLOCKED,   /* waiting on I/O or lock (future use) */
-    TASK_EXITED     /* finished, awaiting cleanup */
+    TASK_BLOCKED,
+    TASK_EXITED
 } task_state_t;
 
 struct task {
-    /* Context (saved/restored on switch) */
-    uint32_t esp;                    /* saved stack pointer */
-
-    /* Identity */
+    uint32_t esp;
     int      id;
     const char* name;
     task_state_t state;
     task_priority_t priority;
-
-    /* Memory */
-    uint32_t stack_base;             /* for cleanup on exit */
+    uint32_t stack_base;
     uint32_t stack_size;
-
-    /* FPU state — separately allocated, 16-byte aligned.
-     * NOT embedded in struct to avoid alignment issues
-     * that caused heap corruption in v1. */
-    uint8_t* fpu_state;              /* 512 bytes, allocated via kmalloc_aligned(512, 16) */
+    uint8_t* fpu_state;              /* 512 bytes via kmalloc_aligned(512, 16) */
     bool     fpu_initialized;
-
-    /* Timing */
     uint64_t sleep_until;            /* 64-bit tick count — no wrap issues */
-    uint32_t cpu_ticks;              /* ticks spent running this task (approximate) */
-    uint32_t total_ticks;            /* total ticks since task creation */
-
-    /* Cleanup */
-    bool     needs_cleanup;          /* set by task_exit, processed by scheduler */
+    uint32_t cpu_ticks;
+    uint32_t total_ticks;
+    bool     needs_cleanup;
 };
 ```
 
-### Tick Counter
+### 2.9 — Scheduler (kernel/scheduler.c + kernel/scheduler_asm.asm)
 
-**64-bit tick counter eliminates the 32-bit wrap problem:**
+#### Context Switch Assembly
 
-```c
-/* In timer.c */
-static volatile uint64_t ticks_64 = 0;
-
-void timer_handler(void) {
-    ticks_64++;
-}
-
-uint64_t timer_get_ticks_64(void) {
-    /* On 32-bit x86, reading a 64-bit value isn't atomic.
-     * Disable interrupts to prevent a torn read. */
-    uint64_t val;
-    asm volatile("cli");
-    val = ticks_64;
-    asm volatile("sti");
-    return val;
-}
-
-/* 64-bit tick at 250 Hz wraps in ~2.3 billion years. We're fine. */
+```nasm
+; void task_switch(uint32_t* old_esp, uint32_t new_esp)
+task_switch:
+    push ebp / ebx / esi / edi
+    mov eax, [esp+20]     ; &old_esp
+    mov [eax], esp         ; save current ESP
+    mov esp, [esp+24]      ; load new ESP (from OLD stack before switch)
+    pop edi / esi / ebx / ebp
+    ret                    ; returns to new task's saved EIP
 ```
 
-**Sleep comparison is always wrap-safe by using 64-bit values:**
-```c
-if (timer_get_ticks_64() >= tasks[i].sleep_until) {
-    tasks[i].state = TASK_READY;
-}
+#### New Task Stack Setup
+
+New tasks go through a trampoline that enables interrupts before the entry function runs. This is necessary because `schedule()` disables interrupts (`cli`) before `task_switch`, so new tasks would otherwise start with IF=0.
+
 ```
-
-### RDTSC High-Resolution Timer
-
-For precision timing (frame time, audio, profiling) without interrupt overhead:
-
-```c
-/* kernel/rdtsc.h */
-
-static inline uint64_t rdtsc(void) {
-    uint32_t lo, hi;
-    asm volatile("rdtsc" : "=a"(lo), "=d"(hi));
-    return ((uint64_t)hi << 32) | lo;
-}
-
-/* Calibrate TSC frequency against PIT at boot */
-uint64_t rdtsc_frequency;  /* cycles per second */
-
-void rdtsc_calibrate(void) {
-    /* Count TSC cycles over 100 PIT ticks (400ms at 250 Hz) */
-    uint64_t start = rdtsc();
-    uint64_t start_tick = timer_get_ticks_64();
-    while (timer_get_ticks_64() < start_tick + 100)
-        asm volatile("hlt");
-    uint64_t end = rdtsc();
-    uint64_t elapsed_ticks = 100;
-    uint64_t elapsed_cycles = end - start;
-    rdtsc_frequency = (elapsed_cycles * 250) / elapsed_ticks;
-}
-
-/* Convert cycles to microseconds */
-static inline uint64_t rdtsc_to_us(uint64_t cycles) {
-    return (cycles * 1000000) / rdtsc_frequency;
-}
+[top of 16KB stack, 16-byte aligned]
+task_exit_wrapper       ← return addr when entry function returns
+entry_function          ← trampoline's ret pops this
+task_entry_trampoline   ← task_switch's ret jumps here (does sti, then ret)
+0                       ← saved EBP
+0                       ← saved EBX
+0                       ← saved ESI
+0                       ← saved EDI
+[ESP points here]
 ```
-
-### FPU Management
-
-**FPU is initialized at boot and saved/restored on every context switch.** This is eager switching — simpler and correct. The performance cost is ~20 microseconds per switch (512 bytes saved/restored), which at 250 Hz scheduler ticks is 0.5% overhead. Acceptable.
-
-```c
-/* During kernel init, before any FPU use: */
-void fpu_init(void) {
-    /* Enable FPU: clear CR0.EM, set CR0.MP */
-    uint32_t cr0;
-    asm volatile("mov %%cr0, %0" : "=r"(cr0));
-    cr0 &= ~(1 << 2);   /* Clear EM (emulation) */
-    cr0 |= (1 << 1);    /* Set MP (monitor coprocessor) */
-    asm volatile("mov %0, %%cr0" :: "r"(cr0));
-
-    /* Enable SSE: set CR4.OSFXSR and CR4.OSXMMEXCPT */
-    uint32_t cr4;
-    asm volatile("mov %%cr4, %0" : "=r"(cr4));
-    cr4 |= (1 << 9);    /* OSFXSR — enable fxsave/fxrstor */
-    cr4 |= (1 << 10);   /* OSXMMEXCPT — enable SSE exceptions */
-    asm volatile("mov %0, %%cr4" :: "r"(cr4));
-
-    /* Initialize FPU state */
-    asm volatile("fninit");
-}
-```
-
-**Per-task FPU buffer:**
-```c
-/* In task_create(): */
-tasks[slot].fpu_state = kmalloc_aligned(512, 16);
-if (!tasks[slot].fpu_state) return -1;  /* OOM */
-memset(tasks[slot].fpu_state, 0, 512);
-tasks[slot].fpu_initialized = false;
-
-/* In scheduler_init() for task 0 (kernel/boot task): */
-static uint8_t boot_fpu_state[512] __attribute__((aligned(16)));
-tasks[0].fpu_state = boot_fpu_state;
-tasks[0].fpu_initialized = true;
-asm volatile("fxsave (%0)" :: "r"(tasks[0].fpu_state) : "memory");
-```
-
-### Scheduler (kernel/scheduler.c)
 
 #### Idle Task
 
-**The idle task is a real task at PRIORITY_IDLE.** It only runs when no other task is READY. It executes `hlt` to save power and stop the CPU until the next interrupt.
-
 ```c
-static void idle_task_func(void) {
+static void idle_task_entry(void) {
     while (1) {
-        asm volatile("hlt");
+        __asm__ __volatile__("sti; hlt");  /* sti before hlt — ensures wakeup */
     }
 }
-
-/* Created during scheduler_init(): */
-task_create("idle", idle_task_func, PRIORITY_IDLE);
 ```
 
-**CPU usage = percentage of ticks NOT spent in the idle task:**
-```c
-static uint32_t idle_ticks = 0;
-static uint32_t total_ticks_window = 0;
-static int cpu_usage_pct = 0;
+The `sti; hlt` pair is critical: without `sti`, `hlt` would halt the CPU permanently since no interrupts could wake it.
 
-#define CPU_WINDOW 250  /* 1 second at 250 Hz */
-
-/* In schedule(), called every timer tick: */
-if (current_task == idle_task_id) {
-    idle_ticks++;
-}
-total_ticks_window++;
-
-if (total_ticks_window >= CPU_WINDOW) {
-    cpu_usage_pct = 100 - (idle_ticks * 100 / total_ticks_window);
-    idle_ticks = 0;
-    total_ticks_window = 0;
-}
-```
-
-This measures real CPU usage: if the system is 40% busy, that means 60% of ticks were spent in the idle task doing `hlt`.
-
-#### Priority Scheduling
-
-Simple priority with starvation prevention:
+#### schedule() — Called from Timer IRQ and task_yield
 
 ```c
-/* schedule() — find next task to run */
-
-/* Search from HIGH to LOW priority for the first READY task.
- * IDLE is only selected if nothing else is READY.
- * Within the same priority level, round-robin. */
-
-int next = -1;
-for (int prio = PRIORITY_HIGH; prio <= PRIORITY_IDLE; prio++) {
-    /* Round-robin within this priority: start after current_task */
-    for (int i = 0; i < MAX_TASKS; i++) {
-        int idx = (current_task + 1 + i) % MAX_TASKS;
-        if (tasks[idx].state == TASK_READY && tasks[idx].priority == prio) {
-            next = idx;
-            goto found;
-        }
-    }
-}
-found:
-if (next < 0) return;  /* shouldn't happen — idle task is always READY */
-```
-
-**Starvation prevention:** every 250 ticks (1 second), temporarily boost any NORMAL/LOW task that hasn't run in >500 ticks to HIGH for one time slice. This prevents a tight HIGH-priority render loop from starving the shell.
-
-#### Context Switch
-
-```c
+__attribute__((noinline))
 void schedule(void) {
-    if (!scheduler_enabled || task_count <= 1) return;
+    if (!scheduler_enabled) return;
 
-    uint64_t now = timer_get_ticks_64();
+    /* Disable interrupts to prevent re-entrant schedule() calls.
+     * Timer IRQ can fire while in schedule() via task_yield(). */
+    pushf/cli (save flags)
 
-    /* Wake sleeping tasks */
-    for (int i = 0; i < MAX_TASKS; i++) {
-        if (tasks[i].state == TASK_SLEEPING && now >= tasks[i].sleep_until) {
-            tasks[i].state = TASK_READY;
-        }
-    }
-
-    /* Clean up exited tasks (deferred from previous tick) */
-    for (int i = 0; i < MAX_TASKS; i++) {
-        if (tasks[i].state == TASK_EXITED && tasks[i].needs_cleanup) {
-            /* Safe to free: this task is not current and not running */
-            if (tasks[i].stack_base) kfree((void*)tasks[i].stack_base);
-            if (tasks[i].fpu_state) kfree_aligned(tasks[i].fpu_state);
-            tasks[i].stack_base = 0;
-            tasks[i].fpu_state = NULL;
-            tasks[i].needs_cleanup = false;
-            tasks[i].state = TASK_UNUSED;
-            task_count--;
-        }
-    }
-
-    /* CPU accounting */
-    tasks[current_task].cpu_ticks++;
-    /* idle tracking for CPU usage percentage */
-    if (current_task == idle_task_id) idle_ticks++;
-    total_ticks_window++;
-    if (total_ticks_window >= CPU_WINDOW) {
-        cpu_usage_pct = 100 - (idle_ticks * 100 / total_ticks_window);
-        idle_ticks = 0;
-        total_ticks_window = 0;
-    }
-
-    /* Find next task (priority + round-robin, see above) */
-    int old = current_task;
-    int next = find_next_task();  /* implements priority search */
-    if (next == old) return;
-
-    /* Save old task's FPU state */
-    if (tasks[old].fpu_initialized) {
-        asm volatile("fxsave (%0)" :: "r"(tasks[old].fpu_state) : "memory");
-    }
-
-    /* State transitions */
-    if (tasks[old].state == TASK_RUNNING)
-        tasks[old].state = TASK_READY;
-    tasks[next].state = TASK_RUNNING;
-    current_task = next;
-
-    /* Restore new task's FPU state */
-    if (tasks[next].fpu_initialized) {
-        asm volatile("fxrstor (%0)" :: "r"(tasks[next].fpu_state) : "memory");
-    } else {
-        asm volatile("fninit");
-        tasks[next].fpu_initialized = true;
-    }
-
-    /* Switch stacks */
-    task_switch(&tasks[old].esp, tasks[next].esp);
+    1. Wake sleeping tasks (64-bit comparison)
+    2. Cleanup exited tasks (deferred: kfree stack, kfree_aligned FPU)
+    3. CPU accounting (idle_ticks / window for cpu_usage_pct)
+    4. Starvation prevention: boost starved NORMAL/LOW to HIGH for one slice
+       (threshold: >=250 ticks without running; original priority tracked separately)
+    5. find_next_task(): priority scan HIGH→IDLE, round-robin within priority
+    6. Restore all boosted priorities after selection
+    7. FPU save (fxsave) old task, FPU restore (fxrstor) or fninit for new task
+    8. Update TSS esp0 via gdt_set_kernel_stack()
+    9. task_switch(&old.esp, new.esp)
+    10. [compiler barrier — prevents tail-call optimization of task_switch]
+    11. Restore saved flags (popf — re-enables interrupts for resumed task)
 }
+```
+
+**Re-entrancy protection:** `schedule()` is called both from the timer IRQ (IF=0 already) and from `task_yield()` (IF=1). Without the `pushf/cli` guard, a timer IRQ during a yield-triggered `schedule()` would re-enter and corrupt shared state.
+
+#### CPU Usage
+
+```c
+#define ACCOUNTING_WINDOW 250  /* 1 second at 250 Hz */
+
+/* In schedule(): */
+window_ticks++;
+if (current_task == idle_task_id) idle_ticks++;
+if (window_ticks >= ACCOUNTING_WINDOW) {
+    last_window_idle = idle_ticks;
+    last_window_total = window_ticks;
+    window_ticks = idle_ticks = 0;
+}
+
+/* scheduler_get_cpu_usage(): */
+/* Returns (window - idle) * 100 / window from last completed window */
 ```
 
 #### Task Lifecycle Contract
 
-Explicit rules, no ambiguity:
-
-1. **task_create()** -> state = TASK_READY. Allocated: stack, fpu_state. Scheduler may now pick this task.
-2. **schedule() picks task** -> state = TASK_RUNNING. Only one task is RUNNING at any time.
-3. **schedule() preempts task** -> state back to TASK_READY. Task is still live, all resources valid.
-4. **task_sleep(ms)** -> state = TASK_SLEEPING, sleep_until set. schedule() is called. Task will not be picked until now >= sleep_until.
-5. **task_yield()** -> calls schedule() directly. Enables interrupts first (sti) to prevent running with interrupts off.
-6. **task_exit()** -> state = TASK_EXITED, needs_cleanup = true. Enters infinite yield loop. The scheduler will never switch TO this task (state is not READY/RUNNING). On the next schedule() call, the cleanup path frees stack and fpu_state, sets state to UNUSED.
-7. **task_kill(id)** -> only for non-current, non-protected tasks. Sets state = TASK_EXITED, needs_cleanup = true. The killed task will be cleaned up on the next schedule() tick. Protected tasks (idle, kernel) cannot be killed.
-
-**Who owns `name`:** The name pointer must point to a string literal or permanently allocated memory. The scheduler does NOT free it. If you need a dynamic name, allocate it with kmalloc and free it yourself before the task exits.
+1. **task_create()** → TASK_READY. Allocates stack (kmalloc) + FPU buffer (kmalloc_aligned).
+2. **schedule() picks task** → TASK_RUNNING. Only one task is RUNNING at any time.
+3. **schedule() preempts** → back to TASK_READY.
+4. **task_sleep(ms)** → TASK_SLEEPING, sleep_until set, calls task_yield().
+5. **task_yield()** → `sti; schedule()`. Ensures interrupts enabled after return.
+6. **task_exit()** → TASK_EXITED, needs_cleanup=true. Infinite yield loop. Scheduler frees resources on next tick.
+7. **task_kill(id)** → sets TASK_EXITED + needs_cleanup. Protected: kernel (task 0) and idle cannot be killed.
 
 #### Task API
 
 ```c
-void scheduler_init(void);
+init_result_t scheduler_init(void);
+void schedule(void);
 int  task_create(const char* name, void (*entry)(void), task_priority_t priority);
 void task_sleep(uint32_t ms);
 void task_yield(void);
-void task_exit(void);    /* called by the task itself, or as return-handler */
-int  task_kill(int id);  /* kill another task. Returns 0 on success, -1 if protected. */
-
-/* Queries */
+void task_exit(void);
+int  task_kill(int id);
 struct task* task_get_current(void);
 struct task* task_get(int index);
 int  task_get_count(void);
@@ -1068,18 +1005,18 @@ int  scheduler_get_cpu_usage(void);
 
 ### Phase 2 Acceptance Tests
 
-1. **Basic switching:** create 3 tasks that each increment a counter. After 1 second, all three counters > 0 (all got CPU time).
-2. **Priority:** create a HIGH task and a LOW task. HIGH task gets significantly more ticks over a 1-second window.
-3. **Sleep:** task calls task_sleep(500). Verify it wakes up after ~500ms (+/-10ms tolerance at 250 Hz).
-4. **Sleep wrap-safe:** set sleep_until to a large value, verify comparison works correctly. (64-bit makes this trivial.)
-5. **Task exit cleanup:** create 100 tasks that immediately exit. Verify: no memory leak (heap stats return to pre-test levels), task_count returns to baseline.
-6. **FPU isolation:** two tasks: task A sets FPU register to 1.0, yields, checks it's still 1.0. Task B sets FPU register to 2.0, yields, checks it's still 2.0. Both must pass — proves FPU state is isolated between tasks.
-7. **FPU stress:** create 5 tasks each doing intensive floating-point math (different calculations). Run for 5 seconds. Each task verifies its results are correct. Any FPU corruption would produce wrong answers.
-8. **Idle task:** with only idle task + kernel task running, CPU usage should report 0-5%.
-9. **CPU measurement:** create a tight-loop task (burns CPU). CPU usage should report ~95-100%.
-10. **Kill task:** create a task, kill it from another task. Verify it gets cleaned up. Verify killing idle/kernel returns -1 (protected).
-11. **Starvation prevention:** create a tight-loop HIGH task and a NORMAL task. After 5 seconds, NORMAL task's cpu_ticks > 0 (it got at least some time despite HIGH task hogging).
-12. **task_yield with interrupts:** call task_yield() with interrupts disabled. Verify interrupts are re-enabled after yield returns.
+1. **Basic switching:** 3 tasks increment counters. After 1s, all > 0.
+2. **Priority:** HIGH vs LOW task. HIGH gets >5x more ticks in 1s.
+3. **Sleep accuracy:** task_sleep(500). Verify ~125 ticks elapsed (±5 ticks).
+4. **Sleep wrap-safe:** 64-bit trivially satisfied. Verify sleep(100ms) works.
+5. **Task exit cleanup:** Create 100 tasks (in batches of 20) that exit. Heap returns to baseline, task_count returns.
+6. **FPU isolation:** Task A loads 1.0, yields, checks 1.0. Task B loads 2.0, yields, checks 2.0. 100 iterations each.
+7. **FPU stress:** 5 tasks doing different FP math for 5 seconds. Results correct.
+8. **Idle CPU:** Only kernel+idle running. scheduler_get_cpu_usage() ≈ 0-5%.
+9. **CPU measurement:** Tight-loop task. scheduler_get_cpu_usage() ≈ 90-100%.
+10. **Kill task:** Create task, kill it, verify cleanup. Verify kill(idle)=-1, kill(0)=-1.
+11. **Starvation prevention:** HIGH tight-loop + NORMAL counter. After 5s, NORMAL counter > 0.
+12. **Yield with interrupts:** cli, task_yield(), verify IF=1 after return.
 
 ---
 
@@ -1132,66 +1069,37 @@ int  vga_get_cursor_y(void);
 - Used during boot log, before framebuffer is available
 - **If boot_info.fb_addr == 0 (no VBE), VGA text mode is the primary display for the entire session**
 
-### 3.3 — Framebuffer (drivers/framebuffer.c)
+### 3.3 — Framebuffer HAL (drivers/framebuffer.c)
 
-VESA framebuffer driver. Only initialized if boot_info.fb_addr != 0.
+**Hardware Abstraction Layer only.** The framebuffer driver does NOT contain drawing primitives. All rendering (2D and 3D) goes through ChaosGL, which is the sole entity that writes to the back buffer and blits to VRAM. See `documents/ChaosGL-spec.md` for the full graphics API.
+
+Only initialized if boot_info.fb_addr != 0.
 
 ```c
+typedef struct {
+    uint32_t fb_addr;    /* physical address of VBE linear framebuffer */
+    uint32_t width;
+    uint32_t height;
+    uint32_t pitch;      /* bytes per scanline */
+    uint8_t  bpp;        /* bits per pixel — must be 32 */
+} fb_info_t;
+
 init_result_t fb_init(struct boot_info* info);
 
-/* Drawing primitives */
-void fb_clear(uint32_t color);
-void fb_putpixel(int x, int y, uint32_t color);
-void fb_rect(int x, int y, int w, int h, uint32_t color);
-void fb_rect_outline(int x, int y, int w, int h, uint32_t color, int thickness);
-void fb_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color);
-void fb_line(int x1, int y1, int x2, int y2, uint32_t color);
-void fb_circle(int cx, int cy, int radius, uint32_t color);
-
-/* Text rendering (bitmap font) */
-void fb_char(int x, int y, char c, uint32_t fg, uint32_t bg);
-int  fb_text(int x, int y, const char* str, uint32_t fg, uint32_t bg);
-int  fb_text_width(const char* str);
-int  fb_text_wrapped(int x, int y, int max_w, const char* str, uint32_t fg, uint32_t bg);
-
-/* Buffer management */
-void fb_swap(void);              /* copy back buffer to framebuffer */
-void fb_set_clip(int x, int y, int w, int h);
-void fb_clear_clip(void);
-
-/* Info */
-int fb_width(void);
-int fb_height(void);
-int fb_pitch(void);
+/* Returns true if VBE is initialised and framebuffer is available.
+ * Returns false if no VBE (system is in text mode — chaos_gl_init() will fail). */
+bool fb_get_info(fb_info_t* out);
 ```
 
 **fb_init:**
 1. Check boot_info.fb_addr != 0. If 0, return INIT_FAIL (not FATAL — system runs in text mode).
 2. Store fb_addr, width, height, pitch, bpp from boot_info.
-3. **Allocate back buffer from PMM** (not heap): `pmm_alloc_pages(pages_needed)`. This avoids polluting the heap with a large permanent allocation. Mark those pages as PAGE_RESERVED in page_ownership via `heap_mark_reserved()`.
-4. Map back buffer in VMM with PRESENT | WRITABLE (normal cached memory — it's RAM, not MMIO).
-5. Framebuffer itself is already mapped by VMM with NOCACHE | WRITETHROUGH.
-6. Zero both buffers.
+3. Verify bpp == 32 (ChaosGL requires BGRX 32bpp).
+4. Framebuffer VRAM is already mapped by VMM with NOCACHE | WRITETHROUGH.
 
-**fb_swap implementation:**
-```c
-void fb_swap(void) {
-    /* Copy back buffer to framebuffer.
-     * rep movsd is the fastest non-SSE bulk copy on i686.
-     * Each iteration copies 4 bytes (one ARGB pixel). */
-    uint32_t dwords = (fb_pitch * fb_height_val) / 4;
-    asm volatile (
-        "cld\n\t"
-        "rep movsd"
-        : : "S"(backbuffer), "D"((void*)fb_addr_val), "c"(dwords)
-        : "memory"
-    );
-}
-```
+**No back buffer, no drawing primitives, no font, no swap.** ChaosGL owns the back buffer (allocated from PMM during `chaos_gl_init()`), all rendering, and the final blit to VRAM.
 
-Note: fb_pitch may be > fb_width * 4 due to scanline padding. We copy full scanlines including padding. This wastes a few bytes per line but avoids per-line copy loops.
-
-**Acceptance:** fill screen with color, draw rectangles, render text. Verify visually. Verify fb_swap doesn't corrupt memory (check sentinel values before/after buffers).
+**Acceptance:** fb_init returns INIT_OK when VBE is available, INIT_FAIL gracefully when not. fb_get_info returns correct dimensions matching boot_info. If VBE unavailable, system continues in VGA text mode.
 
 ### 3.4 — PS/2 Keyboard (drivers/keyboard.c)
 
@@ -1527,7 +1435,7 @@ boot_log_detail("Physical memory", pmm_init(boot_info),
 
 1. **Timer:** ticks increment at 250 Hz (+/-2%). RDTSC calibration produces reasonable frequency.
 2. **VGA:** text displays correctly, scrolling works, cursor position tracks.
-3. **Framebuffer:** if VBE available, fb_init returns INIT_OK. Rectangles, text, and fb_swap work visually. If VBE unavailable, fb_init returns INIT_FAIL gracefully.
+3. **Framebuffer HAL:** if VBE available, fb_init returns INIT_OK and fb_get_info reports correct dimensions. If VBE unavailable, fb_init returns INIT_FAIL gracefully and fb_get_info returns false.
 4. **Keyboard:** all printable keys produce correct ASCII. Shift modifies correctly. E0 keys (arrows, home, end, delete, insert, pgup, pgdn, right ctrl, right alt) all register in key_state[]. KEY_UP events fire on release.
 5. **Mouse:** movement updates position. Buttons register. Raw mode accumulates deltas. Sync recovery works (send garbage byte, verify it re-syncs on next valid packet).
 6. **Input queue:** push 256 events, verify all 256 are polled back in order. Push 257 events, verify overflow flag is set. Verify no crash.
@@ -1544,110 +1452,141 @@ boot_log_detail("Physical memory", pmm_init(boot_info),
 /* kernel/main.c — AIOS v2 kernel entry point */
 
 void kernel_main(struct boot_info* info) {
-    /* ── Phase 0 validation ────────────────────────── */
-    /* Verify boot_info integrity */
-    assert(info->magic == BOOT_MAGIC);
-    _Static_assert(sizeof(struct boot_info) <= 4096, "boot_info too large");
-
     /* ── Early init (no dependencies) ──────────────── */
-    serial_init();              /* debug output first */
+    serial_init();
     serial_print("\n[AIOS v2] Kernel starting\n");
-
-    /* VGA for boot display */
     vga_init();
-    boot_display_banner();      /* ASCII art + version */
+    boot_display_banner();
+
+    /* ── Phase 0 validation ────────────────────────── */
+    if (info->magic != BOOT_MAGIC) kernel_panic("boot_info magic mismatch!");
 
     /* ── Phase 1: Memory ──────────────────────────── */
-    boot_log("Physical memory manager",
-             pmm_init(info));
-
-    boot_log("Virtual memory manager",
-             vmm_init(info));
-
-    boot_log("Kernel heap (slab + buddy)",
-             heap_init(info));
+    boot_log("Physical memory manager",      pmm_init(info));
+    boot_log("Virtual memory manager",       vmm_init(info));
+    boot_log("Kernel heap (slab + buddy)",   heap_init(info));
 
     /* ── Phase 2: Multitasking ────────────────────── */
+    boot_log("GDT with TSS",                gdt_init());
+    boot_log("Interrupt descriptor table",   idt_init());
+    isr_init();
+    boot_log("Exception handlers (ISR 0-31)", INIT_OK);
+    irq_init();
+    boot_log("Hardware IRQ handlers (PIC)",  INIT_OK);
     fpu_init();
-    boot_log("FPU / SSE",              INIT_OK);
+    boot_log("FPU/SSE",                     INIT_OK);
+    boot_log("PIT timer (250 Hz)",           timer_init());
+    boot_log("Preemptive scheduler",         scheduler_init());
 
-    boot_log("Interrupt descriptor table", idt_init());
-    boot_log("Task scheduler",          scheduler_init());
-
-    /* ── Phase 3: Drivers ─────────────────────────── */
-    boot_log("PIT timer (250 Hz)",      timer_init());
-    boot_log("PS/2 keyboard",           keyboard_init());
-    boot_log("PS/2 mouse",              mouse_init());
-
-    /* Framebuffer (optional — degrades gracefully) */
-    init_result_t fb_result = fb_init(info);
-    if (fb_result == INIT_OK) {
-        boot_log_detail("VESA framebuffer", INIT_OK,
-            /* format: "1024x768x32 @ 0xFD000000" */);
-    } else {
-        boot_log_detail("VESA framebuffer", INIT_WARN,
-            "Not available — using VGA text mode");
-    }
-
-    boot_log("ATA disk",                ata_init());
-    boot_log("RDTSC calibration",       rdtsc_calibrate_result());
-
-    /* Enable interrupts — scheduler starts running */
-    boot_log("Interrupts",              INIT_OK);
+    /* Enable interrupts — timer starts, preemption begins */
     asm volatile("sti");
 
-    /* ── Phase 0-3 complete ───────────────────────── */
-    boot_print("\nAIOS v2 foundation ready.\n");
-    boot_print("Phase 0-3 complete. All systems nominal.\n\n");
+    /* RDTSC calibration (needs timer running) */
+    boot_log("RDTSC calibration",            rdtsc_calibrate());
 
-    /* ── Continue to Phase 4+ (filesystem, network, etc.) ── */
+    /* ── Phase 3: Drivers ─────────────────────────── */
+    boot_log("PS/2 keyboard",                keyboard_init());
+    boot_log("PS/2 mouse",                   mouse_init());
+
+    /* Framebuffer HAL (optional — ChaosGL needs this) */
+    init_result_t fb_result = fb_init(info);
+    boot_log("Framebuffer HAL", fb_result);
+
+    boot_log("ATA disk",                     ata_init());
+
+    /* ── Phase 4: ChaosFS ─────────────────────────── */
+    boot_log("ChaosFS",                      chaos_mount(CHAOS_LBA_START));
+
+    /* ── Phase 5: ChaosGL ─────────────────────────── */
+    if (fb_result == INIT_OK) {
+        boot_log("ChaosGL graphics",         chaos_gl_init());
+    }
+
+    /* ── Phase 6: KAOS Modules ────────────────────── */
+    boot_log("KAOS module manager",          kaos_init());
+    kaos_load_all("/modules/");  /* auto-load boot modules */
+
+    /* ── Foundation complete ───────────────────────── */
+    boot_print("\nAIOS v2 foundation ready.\n");
+
+    /* ── Continue to shell / desktop ──────────────── */
     /* ... */
 }
 ```
 
 ---
 
-## Project Structure (Phases 0-3)
+## Project Structure
 
 ```
 AIOS-v2/
 ├── boot/
-│   ├── stage1.asm              # MBR bootloader (512 bytes)
-│   └── stage2.asm              # Real-mode setup, ELF loader, VBE
+│   ├── stage1.asm                 # MBR bootloader (512 bytes)
+│   └── stage2.asm                 # Real-mode setup, ELF loader, VBE
 ├── kernel/
-│   ├── main.c                  # Kernel entry point + boot sequence
-│   ├── boot_display.c          # Boot logging with real status codes
-│   ├── gdt.c / gdt.h           # Global Descriptor Table
-│   ├── idt.c / idt.h           # Interrupt Descriptor Table
-│   ├── isr.c / isr.asm         # CPU exception handlers
-│   ├── irq.c / irq.asm         # Hardware IRQ handlers
-│   ├── pmm.c / pmm.h           # Physical memory manager (bitmap)
-│   ├── vmm.c / vmm.h           # Virtual memory manager (4KB pages)
-│   ├── heap.c / heap.h         # Dual allocator: slab + buddy
-│   ├── slab.c / slab.h         # Slab allocator internals
-│   ├── buddy.c / buddy.h       # Buddy allocator internals
+│   ├── main.c                     # Kernel entry point + boot sequence
+│   ├── boot_display.c / .h        # Boot logging with real status codes
+│   ├── panic.c / .h               # Kernel panic handler
+│   ├── gdt.c / gdt.h              # GDT with TSS
+│   ├── idt.c / idt.h              # 256-entry IDT
+│   ├── isr.c / isr.h              # CPU exception handlers (C)
+│   ├── isr_stubs.asm              # Exception entry stubs (NASM)
+│   ├── irq.c / irq.h              # Hardware IRQ handlers + PIC (C)
+│   ├── irq_stubs.asm              # IRQ entry stubs (NASM)
+│   ├── pmm.c / pmm.h              # Physical memory manager (bitmap)
+│   ├── vmm.c / vmm.h              # Virtual memory manager (4KB pages)
+│   ├── heap.c / heap.h            # Dual allocator: slab + buddy
+│   ├── slab.c / slab.h            # Slab allocator internals
+│   ├── buddy.c / buddy.h          # Buddy allocator internals
 │   ├── scheduler.c / scheduler.h  # Preemptive priority scheduler
-│   ├── scheduler_asm.asm       # Context switch (task_switch)
-│   ├── panic.c                 # Kernel panic handler
-│   ├── rdtsc.c / rdtsc.h       # High-resolution timestamp counter
-│   └── fpu.c / fpu.h           # FPU/SSE initialization
+│   ├── scheduler_asm.asm          # Context switch (task_switch)
+│   ├── rdtsc.c / rdtsc.h          # High-resolution timestamp counter
+│   ├── fpu.c / fpu.h              # FPU/SSE initialization
+│   └── chaos/                     # ChaosFS (Phase 4)
+│       ├── chaos.h / chaos.c      # Public API, lifecycle, fd table
+│       ├── chaos_types.h          # All on-disk structs
+│       ├── chaos_alloc.c          # Block/inode allocator
+│       ├── chaos_dir.c            # Directory operations
+│       ├── chaos_inode.c          # Inode cache
+│       ├── chaos_block.c          # Block I/O layer
+│       ├── chaos_format.c         # Format tool
+│       └── chaos_fsck.c           # Consistency checker
+├── renderer/                      # ChaosGL (Phase 5) — compiled with RENDERER_CFLAGS (SSE2)
+│   ├── chaos_gl.c / chaos_gl.h   # Public C API — single include
+│   ├── math.c / math.h           # vec2/3/4, mat4, rect_t
+│   ├── backbuffer.c / .h         # Back buffer + z-buffer, begin/end_frame
+│   ├── 2d.c / 2d.h               # 2D primitives, clip stack, text, blit
+│   ├── font.c / font.h           # Claude Mono 8×16 bitmap font
+│   ├── pipeline.c / .h           # Vertex transform, clip, perspective divide
+│   ├── rasterizer.c / .h         # Triangle rasterization, z-test
+│   ├── shaders.c / .h            # Built-in shaders + registry
+│   ├── texture.c / .h            # Texture table, load (.raw), sample
+│   ├── model.c / .h              # .cobj load/free
+│   └── lua_bindings.c            # Lua API registration
 ├── drivers/
-│   ├── timer.c / timer.h       # PIT timer (250 Hz)
-│   ├── vga.c / vga.h           # VGA text mode
-│   ├── framebuffer.c / framebuffer.h  # VESA framebuffer
-│   ├── keyboard.c / keyboard.h  # PS/2 keyboard with E0 support
-│   ├── mouse.c / mouse.h       # PS/2 mouse with raw mode
-│   ├── input.c / input.h       # Shared input event queue
-│   ├── ata.c / ata.h           # ATA/IDE PIO disk
-│   └── serial.c / serial.h     # Serial debug output
+│   ├── timer.c / timer.h          # PIT timer (250 Hz)
+│   ├── vga.c / vga.h              # VGA text mode
+│   ├── framebuffer.c / .h         # VBE framebuffer HAL (fb_get_info only)
+│   ├── keyboard.c / keyboard.h    # PS/2 keyboard with E0 support
+│   ├── mouse.c / mouse.h          # PS/2 mouse with raw mode
+│   ├── input.c / input.h          # Shared input event queue
+│   ├── ata.c / ata.h              # ATA/IDE PIO disk
+│   └── serial.c / serial.h        # Serial debug output
 ├── include/
-│   ├── boot_info.h             # boot_info struct (shared boot/kernel)
-│   ├── types.h                 # stdint, bool, size_t, etc.
-│   ├── string.h                # memcpy, memset, strlen, etc.
-│   └── io.h                    # inb, outb, io_wait, etc.
-├── linker.ld                   # Kernel linker script (linked at 0x100000)
-├── Makefile                    # Build system with size checks
-└── README.md
+│   ├── boot_info.h                # boot_info struct (shared boot/kernel)
+│   ├── types.h                    # stdint, bool, size_t, etc.
+│   ├── string.h / string.c        # memcpy, memset, strlen, etc.
+│   └── io.h                       # inb, outb, io_wait, etc.
+├── tools/                         # Host-side build tools
+│   ├── obj2cobj.c                 # .obj → .cobj model converter
+│   └── gen_texture.c              # Test texture generator
+├── documents/
+│   ├── AIOS-v2-foundation-spec-revised.md   # This document
+│   ├── ChaosFS-v2-spec-revised.md           # Filesystem spec
+│   ├── ChaosGL-spec.md                      # Graphics subsystem spec
+│   └── KAOS-module-spec.md                  # Module system spec
+├── linker.ld                      # Kernel linker script (linked at 0x100000)
+└── Makefile                       # Build system
 ```
 
 ---
@@ -1660,65 +1599,84 @@ CC = i686-elf-gcc
 AS = nasm
 LD = i686-elf-ld
 
-# Compiler flags — freestanding, no libc, no builtins
+# Kernel/driver code — compiler must NOT emit SSE/MMX/SSE2.
+# Reason: IRQ handlers run without fxsave/fxrstor protection. Compiler-emitted
+# SSE in kernel code would silently clobber task XMM registers mid-interrupt.
 CFLAGS = -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror \
-         -O2 -g -std=c11 -mno-sse -mno-mmx
+         -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 -I.
 
-# Note: -mno-sse and -mno-mmx prevent the COMPILER from using SSE/MMX
-# in generated code. We still enable FPU/SSE for explicit use (Lua math,
-# 3D engine) via fxsave/fxrstor. The compiler just won't auto-vectorize.
+# Renderer module (ChaosGL) — SSE2 allowed for SIMD inner loops.
+# ONLY for files under renderer/. Never kernel/, drivers/, or boot/.
+RENDERER_CFLAGS = -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror \
+                  -O2 -g -std=c11 -march=core2 -msse2 -mfpmath=sse -I.
+
+# Linker uses $(CC) not $(LD) so it auto-finds libgcc.a for 64-bit helpers
+LDFLAGS = -T linker.ld -nostdlib
 
 # Stage 2 size check (MUST be <= 8192 bytes)
 stage2_check:
-	@SIZE=$$(stat -c%s boot/stage2.bin 2>/dev/null || stat -f%z boot/stage2.bin); \
+	@SIZE=$$(wc -c < build/stage2.bin | tr -d ' '); \
 	if [ $$SIZE -gt 8192 ]; then \
 		echo "ERROR: Stage 2 is $$SIZE bytes (max 8192)"; exit 1; \
 	fi
-
-# boot_info struct size check (compile-time via _Static_assert)
-# No makefile rule needed — compiler enforces it.
 ```
+
+**Two CFLAGS sets are mandatory.** Kernel code uses `-mno-sse` to prevent the compiler from generating SSE instructions that would corrupt FPU state during interrupts. Renderer code uses `-msse2 -mfpmath=sse` for fast float math. The scheduler's fxsave/fxrstor protects renderer tasks' XMM registers across context switches.
+
+---
+
+## Phase Roadmap
+
+| Phase | Subsystem | Spec Document | Dependencies | Status |
+|-------|-----------|---------------|-------------|--------|
+| 0 | Bootloader | This document | — | PASS (13/13) |
+| 1 | Memory (PMM, VMM, Heap) | This document | Phase 0 | PASS (15/15) |
+| 2 | Multitasking (GDT, IDT, ISR, IRQ, Timer, FPU, Scheduler) | This document | Phase 1 | PASS (12/12) |
+| 3 | Drivers (Keyboard, Mouse, Input, ATA, Framebuffer HAL) | This document | Phase 2 | — |
+| 4 | ChaosFS (filesystem) | `ChaosFS-v2-spec-revised.md` | Phase 3 (ATA) | — |
+| 5 | ChaosGL (universal graphics) | `ChaosGL-spec.md` | Phase 3 (fb HAL), Phase 4 (texture/model loading) | — |
+| 6 | KAOS Modules (kernel add-on system) | `KAOS-module-spec.md` | Phase 4 (ChaosFS for .kaos files) | — |
+| 7+ | Shell, Lua, Desktop, Applications | TBD | Phase 4-6 | — |
+
+**Dependency notes:**
+- ChaosGL core (back buffer, 2D primitives, 3D pipeline) only needs Phase 3 (framebuffer HAL).
+- ChaosGL texture/model loading additionally needs Phase 4 (ChaosFS) for reading .raw and .cobj files from disk.
+- KAOS modules live on ChaosFS as `.kaos` files, so Phase 4 must be complete before Phase 6.
+- The framebuffer driver is HAL-only (Section 3.3). All drawing goes through ChaosGL. See `ChaosGL-spec.md`.
 
 ---
 
 ## Summary
 
-This spec covers the four foundational phases of AIOS v2:
+This spec covers the foundational phases (0-3) of AIOS v2.
 
 | Phase | Components | Key Improvements Over v1 |
 |-------|-----------|--------------------------|
-| 0 | Bootloader | ELF streaming load, boot_info struct, VBE in real mode, disk retry logic, explicit entry ABI |
-| 1 | Memory | Dynamic PMM, selective VMM mapping, slab+buddy heap, page ownership table, aligned alloc contract |
-| 2 | Multitasking | FPU save/restore, idle task, priorities, 64-bit ticks, clean lifecycle |
-| 3 | Drivers | E0 scancodes, mouse raw mode, real init status codes, input queue concurrency, ATA retry |
+| 0 | Bootloader | ELF streaming load, boot_info struct, VBE in real mode, disk retry, explicit entry ABI |
+| 1 | Memory | Dynamic PMM, selective VMM mapping, slab+buddy heap, page ownership, aligned alloc |
+| 2 | Multitasking | GDT/TSS, IDT, ISR/IRQ stubs, PIC remap, FPU save/restore, priority scheduler, starvation prevention, entry trampoline, re-entrancy protection |
+| 3 | Drivers | Framebuffer HAL (no drawing — ChaosGL owns rendering), E0 scancodes, mouse raw mode, input queue, ATA retry |
 
-**Every issue identified in the v1 code review and the external review has been addressed:**
+**v1 issues addressed:**
 
 | Issue | Fix |
 |-------|-----|
 | boot_info too large for 0x0500 | Moved to 0x10000 (4KB page) with static assert |
 | Stage 2 size/address inconsistency | Memory map and disk layout both agree: 8KB (16 sectors), 0x07E00-0x09DFF |
-| Stage 2 hardcoded but claimed dynamic | Documented as fixed contract with build-time check |
 | ELF p_vaddr ambiguity | Explicit contract: kernel linked at phys 0x100000, loader uses p_paddr |
-| kernel_phys_start dual definition | Fixed: always 0x100000 by linker contract, bootloader asserts lowest p_paddr matches |
-| kernel_size ambiguity | Renamed to kernel_loaded_bytes: sum of p_filesz (bytes read from disk) |
-| total_memory naming misleading | Renamed to max_phys_addr with comment: not total RAM, includes holes |
-| ELF loader hidden size limit | Streaming load: segments go directly from disk to p_paddr, scratch only for headers |
 | PMM assumes contiguous kernel | Per-segment reservation from boot_info.kernel_segments[] |
 | Identity map everything wasteful | Selective mapping of only needed regions |
 | SLAB_MAGIC for allocator routing | Page ownership table — O(1) lookup, no magic sniffing |
-| page_ownership scope unclear | Explicit contract: routes kfree only, PAGE_RESERVED for non-heap pages |
-| Buddy metadata layout ambiguous | Clear spec: 8-byte header always present, free-list node overlaid on user area of free blocks |
 | kmalloc_aligned unspecified | Full contract: over-allocate + store original pointer, restrictions documented |
-| krealloc size tracking | Slab: implicit from size class. Buddy: stored in header |
-| Protected mode handoff vague | Full entry ABI table: registers, flags, stack, calling convention |
 | Scheduler cleanup lifecycle | Explicit 7-step lifecycle contract, deferred cleanup |
-| CPU usage measurement wrong | Idle task ticks vs total ticks |
+| CPU usage measurement wrong | Idle task ticks vs total ticks in completed windows |
 | 32-bit tick wrap | 64-bit counter (wraps in 2.3 billion years) |
-| FPU not saved on context switch | fxsave/fxrstor on every switch, separate aligned buffer |
+| FPU not saved on context switch | fxsave/fxrstor on every switch, separate aligned buffer per task |
+| New tasks start with IF=0 | Entry trampoline does `sti` before jumping to task entry function |
+| schedule() re-entrancy | pushf/cli guard prevents timer IRQ during yield-triggered schedule |
+| Tail-call corrupts task_switch | Compiler barrier + noinline on schedule() |
+| Framebuffer had drawing primitives | Demoted to HAL-only (fb_get_info). ChaosGL is the universal graphics API |
 | Keyboard missing E0 scancodes | E0 prefix state machine, remapped to 128+ range |
 | Input queue concurrency | Explicit contract: IRQ serialization, cli/sti on poll, overflow policy |
-| Back buffer from heap | Allocated from PMM directly, marked PAGE_RESERVED |
-| QEMU-specific assumptions | Removed: disk retry logic added, platform-neutral acceptance tests, target platform stated |
 
 **Do not proceed to Phase 4 until all Phase 0-3 acceptance tests pass.**

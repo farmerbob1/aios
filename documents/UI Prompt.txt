@@ -1,0 +1,153 @@
+Right. Thinking properly this time.
+
+Yes, the UI is Lua. But not just raw Lua calling ChaosGL directly everywhere — that would be chaos (no pun intended). Every app reimplementing its own button is wrong. We need a widget library that sits between the raw ChaosGL API and the applications.
+
+The stack looks like this:
+
+```
+Applications (shell.lua, files.lua, claude.lua)
+        │
+        ▼
+Widget Library (button.lua, textfield.lua, window.lua...)
+        │
+        ▼
+ChaosGL API (chaos_gl_rect, chaos_gl_text, etc.)
+        │
+        ▼
+C / Kernel
+```
+
+So the questions are:
+
+**1. What is the widget library?**
+
+It's a Lua module that lives on disk. Every widget is a Lua object with a standard interface — `draw(surface, x, y)`, `on_input(event)`, `on_focus()`, `on_blur()`. Button, TextField, Label, Checkbox, Slider, ScrollView, Window, Panel. Written once, used everywhere.
+
+**2. What does a widget actually look like in code?**
+
+```lua
+-- /system/ui/button.lua
+local Button = {}
+Button.__index = Button
+
+function Button.new(text, on_click)
+    return setmetatable({
+        text     = text,
+        on_click = on_click,
+        hovered  = false,
+        pressed  = false,
+        w        = 0,
+        h        = 0,
+    }, Button)
+end
+
+function Button:draw(surface, x, y)
+    local color = self.pressed and theme.button_pressed
+               or self.hovered and theme.button_hover
+               or theme.button_normal
+    chaos_gl_surface_bind(surface)
+    chaos_gl.rect_rounded(x, y, self.w, self.h, 4, color)
+    chaos_gl.text(x + self.w/2 - chaos_gl.text_width(self.text)/2,
+                  y + self.h/2 - 8,
+                  self.text, theme.text_primary, 0)
+end
+
+function Button:on_input(event, x, y)
+    if event.type == EVENT_MOUSE_MOVE then
+        self.hovered = rect_contains(x, y, self.x, self.y, self.w, self.h)
+    elseif event.type == EVENT_MOUSE_DOWN and self.hovered then
+        self.pressed = true
+    elseif event.type == EVENT_MOUSE_UP and self.pressed then
+        self.pressed = false
+        if self.hovered then self.on_click() end
+    end
+end
+```
+
+Theme colours come from the loaded theme — every widget reads from the global `theme` table, so switching theme changes everything instantly.
+
+**3. Where does this all live?**
+
+```
+/system/
+├── ui/
+│   ├── core.lua          -- Widget base class, layout engine, focus management
+│   ├── button.lua
+│   ├── textfield.lua
+│   ├── label.lua
+│   ├── checkbox.lua
+│   ├── slider.lua
+│   ├── scrollview.lua
+│   ├── listview.lua
+│   ├── window.lua        -- Window chrome: titlebar, resize, close button
+│   ├── panel.lua         -- Container for grouping widgets
+│   ├── menu.lua          -- Dropdown / context menus
+│   ├── dialog.lua        -- Modal dialogs
+│   └── tabview.lua       -- Tabbed panels (settings uses this)
+├── themes/
+│   ├── light.lua
+│   └── dark.lua
+└── layout/
+    ├── flex.lua          -- Flexbox-style layout
+    └── grid.lua          -- Grid layout
+```
+
+**4. The layout system**
+
+This is the part worth thinking about carefully. If every app manually positions every widget by pixel coordinate that's brittle and painful. We need at minimum a simple flex layout — widgets in a row or column, with padding and spacing, that reflows when the window resizes.
+
+It doesn't need to be CSS. Just:
+
+```lua
+local row = flex.row({
+    Button.new("OK", on_ok),
+    Button.new("Cancel", on_cancel),
+}, { spacing = 8, padding = 16, align = "right" })
+```
+
+The layout engine computes x/y positions for each widget and calls their `draw()` methods. Apps describe structure, the layout engine handles coordinates.
+
+**5. How an app uses all of this**
+
+```lua
+-- /desktop/apps/settings.lua
+require "/system/ui/core"
+require "/system/ui/button"
+require "/system/ui/tabview"
+require "/system/ui/slider"
+
+local surface = chaos_gl_surface_create(600, 400, false)
+chaos_gl_surface_set_position(surface, 212, 184)
+chaos_gl_compositor_register(surface)
+
+local tabs = tabview.new({
+    { label = "Display",  content = build_display_tab() },
+    { label = "Audio",    content = build_audio_tab()   },
+    { label = "Claude",   content = build_claude_tab()  },
+})
+
+while running do
+    chaos_gl_surface_clear(surface, theme.window_bg)
+    tabs:draw(surface, 0, 0)
+    chaos_gl_surface_present(surface)
+    
+    local event = input_poll()
+    if event then tabs:on_input(event) end
+    
+    task_sleep(16)
+end
+```
+
+Clean. The app doesn't know what ChaosGL is doing internally. It just creates a surface, draws widgets into it, presents it.
+
+**The key things this gives us:**
+
+- Consistent look across every app because they all use the same widget library
+- Theme support for free — change the theme table, everything redraws with new colours
+- Apps are short — the file browser is probably 200 lines of Lua, not 2000
+- Claude can understand and modify UI code because it's readable Lua, not compiled C
+- New widgets are just new Lua files dropped in `/system/ui/`
+
+The widget library itself is maybe 1000 lines of Lua total. That's the entire UI toolkit for the OS.
+
+Does this structure feel right? The main decision is how sophisticated the layout engine needs to be — minimal flex rows/columns is probably enough for everything we need, but worth deciding now.

@@ -85,6 +85,19 @@ void chaos_inode_init(void) {
     memset(cache, 0, sizeof(cache));
 }
 
+/* Remove a specific inode from the cache WITHOUT writing it back.
+ * Used after chaos_free_inode() to prevent the cache from overwriting
+ * the zeroed on-disk slot with stale data on flush/eviction. */
+void chaos_inode_evict(uint32_t inode_num) {
+    for (int i = 0; i < INODE_CACHE_SIZE; i++) {
+        if (cache[i].inode_num == inode_num) {
+            cache[i].inode_num = 0;
+            cache[i].dirty = false;
+            return;
+        }
+    }
+}
+
 int chaos_inode_read(uint32_t inode_num, struct chaos_inode* out) {
     if (inode_num == CHAOS_INODE_NULL || !out) return CHAOS_ERR_INVALID;
 

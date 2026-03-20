@@ -29,6 +29,7 @@ extern int      chaos_inode_write(uint32_t inode_num, const struct chaos_inode* 
 extern int      chaos_inode_write_through(uint32_t inode_num, const struct chaos_inode* ino);
 extern int      chaos_inode_flush(void);
 extern void     chaos_inode_invalidate(void);
+extern void     chaos_inode_evict(uint32_t inode_num);
 extern uint32_t chaos_resolve_path(const char* path);
 extern int      chaos_dir_find(uint32_t dir_inode_num, const char* name,
                                struct chaos_dirent* out_dirent,
@@ -255,6 +256,15 @@ int chaos_open(const char* path, int flags) {
     if (flags & CHAOS_O_RDWR)  fd_flags |= (FD_FLAG_READ | FD_FLAG_WRITE);
     if (flags & CHAOS_O_APPEND) fd_flags |= FD_FLAG_APPEND;
 
+    /* Check for free fd slot BEFORE creating anything on disk.
+     * Without this check, O_CREAT would create the file but fail to
+     * return an fd, leaving an orphaned inode. */
+    int fd = -1;
+    for (int i = 0; i < CHAOS_MAX_FD; i++) {
+        if (!fd_table[i].in_use) { fd = i; break; }
+    }
+    if (fd < 0) return CHAOS_ERR_NO_FD;
+
     uint32_t ino_num = chaos_resolve_path(path);
 
     if (ino_num == CHAOS_INODE_NULL) {
@@ -291,13 +301,7 @@ int chaos_open(const char* path, int flags) {
     if (chaos_inode_read(ino_num, &ino) != CHAOS_OK) return CHAOS_ERR_IO;
     if ((ino.mode & CHAOS_TYPE_MASK) == CHAOS_TYPE_DIR) return CHAOS_ERR_NOT_FILE;
 
-    /* Find free fd */
-    int fd = -1;
-    for (int i = 0; i < CHAOS_MAX_FD; i++) {
-        if (!fd_table[i].in_use) { fd = i; break; }
-    }
-    if (fd < 0) return CHAOS_ERR_NO_FD;
-
+    /* fd was pre-checked at the top of chaos_open */
     fd_table[fd].in_use = true;
     fd_table[fd].inode_num = ino_num;
     fd_table[fd].position = 0;
@@ -333,6 +337,7 @@ int chaos_close(int fd) {
         if (ino.open_count == 0 && ino.unlink_pending) {
             /* Deferred unlink — free everything now */
             free_inode_blocks(&ino);
+            chaos_inode_evict(ino_num);  /* remove from cache before freeing on disk */
             chaos_free_inode(ino_num);
         } else {
             chaos_inode_write(ino_num, &ino);
@@ -576,6 +581,7 @@ int chaos_unlink(const char* path) {
 
     if (ino.link_count == 0 && ino.open_count == 0) {
         free_inode_blocks(&ino);
+        chaos_inode_evict(entry.inode);  /* remove from cache BEFORE freeing on disk */
         chaos_free_inode(entry.inode);
     } else if (ino.link_count == 0) {
         ino.unlink_pending = true;

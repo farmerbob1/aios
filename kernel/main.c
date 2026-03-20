@@ -437,7 +437,10 @@ static void task_high_counter(void) { while (1) { high_counter++; task_yield(); 
 static void task_low_counter(void)  { while (1) { low_counter++;  task_yield(); } }
 
 static bool test_priority(void) {
-    high_counter = low_counter = 0;
+    counter_a = counter_b = counter_c = 0;  /* clear leftovers from test 1 */
+    high_counter = 0;
+    low_counter = 0;
+    __asm__ __volatile__("" ::: "memory");
 
     int h = task_create("high", task_high_counter, PRIORITY_HIGH);
     int l = task_create("low",  task_low_counter,  PRIORITY_LOW);
@@ -449,12 +452,13 @@ static bool test_priority(void) {
     task_kill(l);
     task_yield();
 
+    uint32_t hc = high_counter;
+    uint32_t lc = low_counter;
     serial_printf("    (high=%u low=%u ratio=%u)\n",
-                  high_counter, low_counter,
-                  low_counter > 0 ? high_counter / low_counter : 0);
+                  hc, lc, lc > 0 ? hc / lc : 0);
 
     /* HIGH should get significantly more ticks than LOW */
-    return (high_counter > low_counter * 5);
+    return (hc > lc * 5);
 }
 
 /* ── Test 3: Sleep accuracy ───────────────────────── */

@@ -70,6 +70,7 @@ C_SOURCES = \
     $(KERNDIR)/chaos/chaos_dir.c \
     $(KERNDIR)/chaos/chaos.c \
     $(KERNDIR)/chaos/chaos_fsck.c \
+    $(KERNDIR)/phase5_tests.c \
     $(INCDIR)/string.c
 
 # Renderer sources — compiled with RENDERER_CFLAGS (SSE2 enabled)

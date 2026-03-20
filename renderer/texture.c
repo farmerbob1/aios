@@ -8,10 +8,10 @@
 #include "../drivers/serial.h"
 #include "../include/string.h"
 
-static chaos_gl_texture_t textures[CHAOS_GL_MAX_TEXTURES];
+static chaos_gl_texture_t* textures;
 
 void chaos_gl_texture_init(void) {
-    memset(textures, 0, sizeof(textures));
+    textures = (chaos_gl_texture_t*)kzmalloc(CHAOS_GL_MAX_TEXTURES * sizeof(chaos_gl_texture_t));
 }
 
 int chaos_gl_texture_load(const char* path) {

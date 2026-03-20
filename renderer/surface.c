@@ -6,10 +6,10 @@
 #include "../drivers/serial.h"
 #include "../include/string.h"
 
-static chaos_gl_surface_t surfaces[CHAOS_GL_MAX_SURFACES];
+static chaos_gl_surface_t* surfaces;
 
 void chaos_gl_surface_init(void) {
-    memset(surfaces, 0, sizeof(surfaces));
+    surfaces = (chaos_gl_surface_t*)kzmalloc(CHAOS_GL_MAX_SURFACES * sizeof(chaos_gl_surface_t));
 }
 
 static bool valid_handle(int handle) {

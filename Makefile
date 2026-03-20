@@ -57,6 +57,11 @@ C_SOURCES = \
     $(DRVDIR)/serial.c \
     $(DRVDIR)/vga.c \
     $(DRVDIR)/timer.c \
+    $(DRVDIR)/framebuffer.c \
+    $(DRVDIR)/keyboard.c \
+    $(DRVDIR)/mouse.c \
+    $(DRVDIR)/input.c \
+    $(DRVDIR)/ata.c \
     $(INCDIR)/string.c
 
 # Kernel ASM sources (ELF format, linked into kernel)
@@ -121,6 +126,8 @@ $(BUILDDIR)/os.img: $(BUILDDIR)/stage1.bin $(BUILDDIR)/stage2.bin $(BUILDDIR)/ke
 	dd if=$(BUILDDIR)/stage2.bin of=$(BUILDDIR)/stage2_padded.bin bs=8192 conv=sync 2>/dev/null
 	cat $(BUILDDIR)/stage2_padded.bin >> $(BUILDDIR)/os.img
 	cat $(BUILDDIR)/kernel.elf >> $(BUILDDIR)/os.img
+	@# Pad to 4MB for ATA write testing (8192 sectors)
+	truncate -s 4M $(BUILDDIR)/os.img
 	@echo "Disk image: $(BUILDDIR)/os.img ($$(wc -c < $(BUILDDIR)/os.img | tr -d ' ') bytes)"
 
 # Run in QEMU

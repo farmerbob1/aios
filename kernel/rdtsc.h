@@ -1,4 +1,4 @@
-/* AIOS v2 — High-Resolution Timestamp Counter (Phase 3) */
+/* AIOS v2 — High-Resolution Timestamp Counter (Phase 2) */
 
 #pragma once
 

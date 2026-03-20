@@ -1,4 +1,4 @@
-/* AIOS v2 — PIT Timer Driver (Phase 3) */
+/* AIOS v2 — PIT Timer Driver (Phase 2) */
 
 #pragma once
 

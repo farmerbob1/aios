@@ -34,10 +34,10 @@ Two-stage bootloader. Stage 1 lives in the MBR (512 bytes), loads Stage 2. Stage
 
 ```
 0x00000 - 0x004FF   Real mode IVT + BIOS data area (DO NOT TOUCH)
-0x00500 - 0x07BFF   Free — used as Stage 2 scratch space (stack, temp buffers)
+0x00500 - 0x07BFF   Free — Stage 2 scratch space, temp buffers
 0x07C00 - 0x07DFF   Stage 1 (loaded by BIOS from MBR)
 0x07E00 - 0x09DFF   Stage 2 code (loaded by Stage 1) — max 8KB (16 sectors)
-0x09E00 - 0x0FFFF   Free — Stage 2 stack (grows down from 0x0FFFF)
+0x09E00 - 0x0FFFF   Free (stack grows down from 0x7C00, inherited from Stage 1)
 0x10000 - 0x10FFF   boot_info struct (4KB reserved) <- FIXED LOCATION
 0x11000 - 0x1FFFF   VBE mode list + scratch (60KB)
 0x20000 - 0x9FFFF   ELF header parsing scratch + general real-mode scratch (512KB)
@@ -98,7 +98,7 @@ Store DL (boot drive from BIOS) for later disk reads.
   - E801 returns memory below 16MB (in 1KB blocks, AX/CX) and above 16MB (in 64KB blocks, BX/DX)
   - Construct two E820 entries: one for 0x100000 to 16MB, one for 16MB to (16MB + BX*64KB)
   - Mark both as type 1 (usable). Set e820_count = 2 (plus the mandatory low-memory entry 0x0-0x9FFFF)
-  - If E801 also fails: assume 64MB, construct a single usable entry from 0x100000 to 0x4000000. Print warning to serial.
+  - If E801 also fails: assume 64MB, construct a single usable entry from 0x100000 with length 0x3F00000 (63MB). Set e820_count = 1 (no separate low-memory entry in this fallback). Print warning to serial.
 - Compute and store boot_info.max_phys_addr (highest address from any E820 entry: base + length)
 - **Max entries: 32** (not 64 — real systems rarely have more than 10-15, 32 is very generous, saves space)
 
@@ -111,7 +111,7 @@ Store DL (boot drive from BIOS) for later disk reads.
   - Memory model = direct color (type 6)
 - Store qualifying modes in boot_info.vbe_modes[] with width, height, pitch, framebuffer address
 - **Max stored modes: 32** (plenty for realistic hardware)
-- **Mode selection priority:** prefer 1024x768, fall back to 800x600, then 640x480, then highest available
+- **Mode selection priority:** prefer 1024x768 (score 4), fall back to 800x600 (score 3), then 640x480 (score 2), then first available 32bpp mode (score 1)
 - Set the selected mode with VBE function 0x4F02 (Set Mode) with bit 14 set (linear framebuffer)
 - Store selected mode info in boot_info: fb_addr, fb_width, fb_height, fb_pitch, fb_bpp
 - **If VBE fails entirely:** fall back to VGA text mode (80x25). Set boot_info.fb_addr = 0 to signal "no framebuffer" to the kernel. The kernel must handle this gracefully.
@@ -124,7 +124,7 @@ ELF loading uses a **streaming approach**: segments are read directly from disk 
 
 - Read the ELF header (first 512 bytes) from sector 17 into scratch at 0x20000
 - **Validate:** magic bytes (0x7F 'E' 'L' 'F'), 32-bit, little-endian, executable
-- **Contract: The kernel ELF is linked at physical address 0x100000 (1MB).** The linker script MUST set both p_vaddr and p_paddr to physical addresses starting at 0x100000. The bootloader loads segments to p_paddr. This is a hard contract — if the linker script changes, boot breaks. **Assert: reject ELF if any p_paddr < 0x100000 or > 0x1000000 (16MB sanity limit).**
+- **Contract: The kernel ELF is linked at physical address 0x100000 (1MB).** The linker script MUST set both p_vaddr and p_paddr to physical addresses starting at 0x100000. The bootloader loads segments to p_paddr. This is a hard contract — if the linker script changes, boot breaks. **Reject if any p_paddr < 0x100000 or >= 0x1000000 (16MB sanity limit).** `kernel_phys_start` is hardcoded to 0x100000 (not asserted from the ELF — the linker contract guarantees it).
 - Read the program header table into scratch (starting at 0x20000 + 512). **Limit: program header table must fit within scratch space.** In practice, ELF program header tables are under 256 bytes (8 entries x 32 bytes each). The 512KB scratch region is vastly more than needed.
 - For each PT_LOAD segment:
   - **Stream segment data directly from disk to p_paddr.** Calculate the starting sector from p_offset, read sectors sequentially to the target physical address. No intermediate buffering in the scratch region.
@@ -171,7 +171,7 @@ The exact machine state when `kernel_main` is entered:
 | FPU | Uninitialized | Kernel must call fpu_init() before any FP use |
 | `[ESP+4]` | 0x10000 | Pointer to boot_info (cdecl calling convention) |
 
-**kernel_main must not return.** There is no valid return address on the stack. The bootloader does not set one. If kernel_main returns, behavior is undefined (likely triple fault). The kernel should halt or enter an infinite loop on fatal error.
+**kernel_main must not return.** The bootloader uses `call` to invoke kernel_main (standard cdecl), so a return address IS on the stack (points to a `cli; hlt` halt loop). However, the kernel must not rely on this — it should halt or enter an infinite loop on fatal error.
 
 ### boot_info Struct
 
@@ -181,6 +181,15 @@ The exact machine state when `kernel_main` is entered:
 /* Shared between bootloader (ASM) and kernel (C) */
 
 #define BOOT_MAGIC          0x434C4F53  /* 'CLOS' */
+#define BOOT_INFO_ADDR      0x10000
+
+/* Init function return codes — used by all Phase 1-3 init functions */
+typedef enum {
+    INIT_OK = 0,   /* Success */
+    INIT_WARN,     /* Success with caveats */
+    INIT_FAIL,     /* Failed, system can continue without this subsystem */
+    INIT_FATAL     /* Failed, system cannot continue — halt */
+} init_result_t;
 #define MAX_E820_ENTRIES     32
 #define MAX_VBE_MODES        32
 #define MAX_KERNEL_SEGMENTS  8
@@ -332,7 +341,7 @@ static uint32_t bitmap_size;      /* bytes in bitmap */
 static uint32_t total_pages;      /* total manageable pages */
 static uint32_t used_pages;
 static uint32_t max_phys_addr;    /* highest physical address (from boot_info) */
-static uint32_t next_alloc_hint;  /* byte index for next-fit search */
+static uint32_t next_alloc_hint;  /* page (bit) index for next-fit search */
 ```
 
 #### Initialization (pmm_init)
@@ -372,7 +381,7 @@ Multi-page alloc does a linear scan for the required consecutive free bits. This
 #### API
 
 ```c
-void     pmm_init(struct boot_info* info);
+init_result_t pmm_init(struct boot_info* info);
 uint32_t pmm_alloc_page(void);
 uint32_t pmm_alloc_pages(uint32_t count);
 void     pmm_free_page(uint32_t phys_addr);
@@ -381,6 +390,8 @@ uint32_t pmm_get_total_pages(void);
 uint32_t pmm_get_free_pages(void);
 uint32_t pmm_get_used_pages(void);
 uint32_t pmm_get_max_phys_addr(void);  /* bytes — highest physical address */
+uint32_t pmm_get_bitmap_addr(void);   /* physical address of bitmap */
+uint32_t pmm_get_bitmap_size(void);   /* bytes in bitmap (page-aligned) */
 ```
 
 ### 1.2 — Virtual Memory Manager (kernel/vmm.c)
@@ -423,7 +434,7 @@ static uint32_t* page_directory;  /* allocated from PMM */
 #define PTE_ACCESSED     0x020
 #define PTE_DIRTY        0x040
 
-void vmm_init(struct boot_info* info);
+init_result_t vmm_init(struct boot_info* info);
 
 /* Map a single 4KB page */
 void vmm_map_page(uint32_t virt, uint32_t phys, uint32_t flags);
@@ -448,15 +459,16 @@ void vmm_flush_tlb_all(void);
 #### vmm_init sequence:
 
 1. Allocate page directory from PMM (one page, zeroed)
-2. Map low memory: 0x00000 - 0xFFFFF with PRESENT | WRITABLE (256 pages). Mark VGA region 0xA0000-0xBFFFF with NOCACHE | WRITETHROUGH additionally.
-3. Map kernel segments: for each boot_info.kernel_segments[i], map phys_start to phys_end with PRESENT | WRITABLE
-4. Map boot_info page: 0x10000 with PRESENT (read-only is fine)
+2. **Pre-allocate all page tables** for the detected physical address range and framebuffer. This ensures no new page tables are needed after paging is enabled (allocating PMM pages with paging on is unsafe without recursive mapping). If a mapping is requested post-paging and its page table doesn't exist, `kernel_panic()` fires.
+3. Map low memory: 0x00000 - 0xFFFFF with PRESENT | WRITABLE (256 pages). Mark VGA region 0xA0000-0xBFFFF with NOCACHE | WRITETHROUGH additionally. (boot_info at 0x10000 is covered by this range.)
+4. Map kernel segments: for each boot_info.kernel_segments[i], map phys_start to phys_end with PRESENT | WRITABLE
 5. Map PMM bitmap: wherever it was placed, with PRESENT | WRITABLE
 6. Map framebuffer: boot_info.fb_addr for (fb_pitch x fb_height) bytes with PRESENT | WRITABLE | NOCACHE | WRITETHROUGH
-7. Map initial heap region (see heap section)
-8. Map page directory and page tables themselves (so we can modify them after paging is on)
-9. Enable paging: load CR3, set CR0.PG
-10. **Do NOT enable PSE (CR4 bit 4).** We don't use 4MB pages.
+7. Map page directory and page tables themselves (so we can modify them after paging is on)
+8. Enable paging: load CR3, set CR0.PG
+9. **Do NOT enable PSE (CR4 bit 4).** We don't use 4MB pages.
+
+**Note:** Heap region is NOT mapped during vmm_init. `heap_init()` maps its own regions after it allocates them from PMM.
 
 #### Mapping new regions after init:
 
@@ -488,8 +500,10 @@ typedef enum {
 } page_owner_t;
 
 /* One byte per page. For 128MB RAM = 32768 entries = 32KB.
- * Allocated from PMM during heap init. */
-static uint8_t* page_ownership;
+ * Allocated from PMM during heap init.
+ * Declared extern in heap.h — slab.c needs direct access to set
+ * PAGE_SLAB when allocating new slab pages from PMM. */
+extern uint8_t* page_ownership;
 ```
 
 **Scope contract:** The page_ownership table is a routing mechanism for `kfree`, not a general-purpose page provenance tracker. It classifies pages into exactly three actionable categories:
@@ -657,7 +671,7 @@ void  kfree_aligned(void* ptr);
 
 ```c
 /* Initialize heap — call after PMM and VMM are up */
-void heap_init(struct boot_info* info);
+init_result_t heap_init(struct boot_info* info);
 
 /* Allocate memory. Routes to slab (<=2048) or buddy (>2048). */
 void* kmalloc(size_t size);
@@ -745,7 +759,7 @@ idt_init()          → Install 256-entry IDT (empty, loaded with lidt)
 isr_init()          → Wire exception handlers 0-31 into IDT
 irq_init()          → Remap PIC (IRQ0-7→INT32-39, IRQ8-15→INT40-47), wire IRQ stubs
 fpu_init()          → CR0.EM=0, CR0.MP=1, CR4.OSFXSR=1, CR4.OSXMMEXCPT=1, fninit
-timer_init()        → PIT ch0 mode 2, divisor=4773 (250Hz), register IRQ0, unmask IRQ0
+timer_init()        → PIT ch0 mode 2, divisor=4772 (250Hz), register IRQ0, unmask IRQ0
 scheduler_init()    → Set up task 0 (kernel), create idle task
 sti                 → Enable interrupts (timer starts, preemption begins)
 rdtsc_calibrate()   → Count TSC cycles over 100 PIT ticks (400ms)
@@ -756,11 +770,12 @@ rdtsc_calibrate()   → Count TSC cycles over 100 PIT ticks (400ms)
 The bootloader's GDT has only null + code + data segments. The kernel installs its own GDT with a TSS entry for hardware task state.
 
 ```c
-/* 4 GDT entries */
+/* 5 GDT entries (array of 5 — entry [4] reserved for future user code segment) */
 [0] null descriptor
 [1] kernel code: selector 0x08, access=0x9A, gran=0xCF (base 0, limit 4GB, exec/read, 32-bit)
 [2] kernel data: selector 0x10, access=0x92, gran=0xCF (base 0, limit 4GB, read/write, 32-bit)
 [3] TSS:         selector 0x18, access=0x89, gran=0x00 (32-bit TSS, not busy)
+[4] (unused, zeroed — reserved for user code if needed)
 ```
 
 The TSS only uses `esp0` and `ss0=0x10`. `gdt_set_kernel_stack(esp0)` updates `tss.esp0` on every context switch so hardware interrupts during a task use the correct kernel stack top.
@@ -834,7 +849,7 @@ uint32_t timer_get_frequency(void); /* returns PIT_FREQUENCY */
 void     timer_wait(uint32_t ms);   /* hlt loop until target ticks reached */
 ```
 
-PIT channel 0, mode 2 (rate generator), divisor = 1193182/250 = 4773.
+PIT channel 0, mode 2 (rate generator), divisor = 1193182/250 = 4772 (integer truncation).
 
 **64-bit tick counter** eliminates the 32-bit wrap problem (wraps in ~2.3 billion years at 250Hz). Interrupt-safe read uses `pushf/cli/read/popf` (not bare `cli/sti`, which is unsafe from interrupt context).
 
@@ -1012,8 +1027,8 @@ int  scheduler_get_cpu_usage(void);
 5. **Task exit cleanup:** Create 100 tasks (in batches of 20) that exit. Heap returns to baseline, task_count returns.
 6. **FPU isolation:** Task A loads 1.0, yields, checks 1.0. Task B loads 2.0, yields, checks 2.0. 100 iterations each.
 7. **FPU stress:** 5 tasks doing different FP math for 5 seconds. Results correct.
-8. **Idle CPU:** Only kernel+idle running. scheduler_get_cpu_usage() ≈ 0-5%.
-9. **CPU measurement:** Tight-loop task. scheduler_get_cpu_usage() ≈ 90-100%.
+8. **Idle CPU:** Only kernel+idle running. scheduler_get_cpu_usage() ≤ 10%.
+9. **CPU measurement:** Tight-loop task. scheduler_get_cpu_usage() ≥ 80%.
 10. **Kill task:** Create task, kill it, verify cleanup. Verify kill(idle)=-1, kill(0)=-1.
 11. **Starvation prevention:** HIGH tight-loop + NORMAL counter. After 5s, NORMAL counter > 0.
 12. **Yield with interrupts:** cli, task_yield(), verify IF=1 after return.

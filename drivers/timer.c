@@ -28,7 +28,7 @@ init_result_t timer_init(void) {
     ticks = 0;
 
     /* PIT channel 0, mode 2 (rate generator), lo/hi byte, binary */
-    uint16_t divisor = PIT_BASE_FREQ / PIT_FREQUENCY;  /* 4773 */
+    uint16_t divisor = PIT_BASE_FREQ / PIT_FREQUENCY;  /* 4772 */
     outb(PIT_CMD, 0x34);
     outb(PIT_CH0_DATA, (uint8_t)(divisor & 0xFF));
     outb(PIT_CH0_DATA, (uint8_t)((divisor >> 8) & 0xFF));

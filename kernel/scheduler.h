@@ -38,6 +38,7 @@ struct task {
     uint32_t cpu_ticks;
     uint32_t total_ticks;
     bool     needs_cleanup;
+    int      chaos_gl_surface_handle;  /* Phase 5: per-task surface binding, -1 = none */
 };
 
 init_result_t scheduler_init(void);

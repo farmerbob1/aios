@@ -228,6 +228,7 @@ init_result_t scheduler_init(void) {
     tasks[0].stack_size = 0x10000;  /* 64KB boot stack */
     tasks[0].fpu_state = kernel_fpu_buf;
     tasks[0].fpu_initialized = true;
+    tasks[0].chaos_gl_surface_handle = -1;
     original_priority[0] = PRIORITY_NORMAL;
     /* esp will be saved on first task_switch */
 
@@ -301,6 +302,7 @@ int task_create(const char* name, void (*entry)(void), task_priority_t priority)
     tasks[slot].cpu_ticks = 0;
     tasks[slot].total_ticks = 0;
     tasks[slot].needs_cleanup = false;
+    tasks[slot].chaos_gl_surface_handle = -1;
     original_priority[slot] = priority;
 
     task_count++;

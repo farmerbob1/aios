@@ -22,13 +22,11 @@ INCDIR   = include
 CFLAGS = -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror \
          -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 -I. -D__AIOS_KERNEL__
 
-# Renderer module (Phase 9) — SSE2 allowed for SIMD inner loops.
+# Renderer (Phase 5 ChaosGL) — SSE2 allowed for SIMD inner loops.
 # ONLY for files under renderer/. Never kernel/, drivers/, or boot/.
-# Example usage:
-#   renderer/rasterizer.o: renderer/rasterizer.c
-#       $(CC) $(RENDERER_CFLAGS) -c $< -o $@
 RENDERER_CFLAGS = -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror \
-                  -O2 -g -std=c11 -march=core2 -msse2 -mfpmath=sse -I.
+                  -O2 -g -std=c11 -march=core2 -msse2 -mfpmath=sse -I. -D__AIOS_KERNEL__
+RENDDIR = renderer
 
 # Assembler flags
 NASMFLAGS_BIN = -f bin
@@ -74,6 +72,20 @@ C_SOURCES = \
     $(KERNDIR)/chaos/chaos_fsck.c \
     $(INCDIR)/string.c
 
+# Renderer sources — compiled with RENDERER_CFLAGS (SSE2 enabled)
+RENDERER_SOURCES = \
+    $(RENDDIR)/math.c \
+    $(RENDDIR)/font.c \
+    $(RENDDIR)/surface.c \
+    $(RENDDIR)/2d.c \
+    $(RENDDIR)/compositor.c \
+    $(RENDDIR)/pipeline.c \
+    $(RENDDIR)/rasterizer.c \
+    $(RENDDIR)/shaders.c \
+    $(RENDDIR)/texture.c \
+    $(RENDDIR)/model.c \
+    $(RENDDIR)/chaos_gl.c
+
 # Kernel ASM sources (ELF format, linked into kernel)
 ASM_SOURCES = \
     $(KERNDIR)/isr_stubs.asm \
@@ -81,9 +93,10 @@ ASM_SOURCES = \
     $(KERNDIR)/scheduler_asm.asm
 
 # Object files
-C_OBJECTS   = $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SOURCES))
-ASM_OBJECTS = $(patsubst %.asm,$(BUILDDIR)/%.o,$(ASM_SOURCES))
-ALL_OBJECTS = $(C_OBJECTS) $(ASM_OBJECTS)
+C_OBJECTS        = $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SOURCES))
+RENDERER_OBJECTS = $(patsubst %.c,$(BUILDDIR)/%.o,$(RENDERER_SOURCES))
+ASM_OBJECTS      = $(patsubst %.asm,$(BUILDDIR)/%.o,$(ASM_SOURCES))
+ALL_OBJECTS      = $(C_OBJECTS) $(RENDERER_OBJECTS) $(ASM_OBJECTS)
 
 # ===== Targets =====
 
@@ -109,6 +122,11 @@ stage2_check: $(BUILDDIR)/stage2.bin
 		echo "ERROR: Stage 2 is $$SIZE bytes (max 8192)"; exit 1; \
 	fi; \
 	echo "Stage 2 size: $$SIZE / 8192 bytes"
+
+# Renderer source -> object (SSE2 enabled, must be before generic rule)
+$(BUILDDIR)/$(RENDDIR)/%.o: $(RENDDIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(RENDERER_CFLAGS) -c $< -o $@
 
 # C source -> object
 $(BUILDDIR)/%.o: %.c
@@ -139,6 +157,7 @@ $(BUILDDIR)/os.img: $(BUILDDIR)/stage1.bin $(BUILDDIR)/stage2.bin $(BUILDDIR)/ke
 	@# Pad to 512MB and format ChaosFS at LBA 2048 (1MB offset)
 	truncate -s 512M $(BUILDDIR)/os.img
 	$(PYTHON) tools/mkfs_chaos.py $(BUILDDIR)/os.img 2048
+	$(PYTHON) tools/gen_assets.py $(BUILDDIR)/os.img 2048
 	@echo "Disk image: $(BUILDDIR)/os.img ($$(wc -c < $(BUILDDIR)/os.img | tr -d ' ') bytes)"
 
 # Run in QEMU

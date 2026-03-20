@@ -37,7 +37,7 @@ grep -E "Phase [0-9]:|accept" build/serial.log
 
 ## Project Status
 
-Phases 0-4 COMPLETE. 50/50 tests passing. Next: Phase 5 (ChaosGL graphics subsystem).
+Phases 0-5 COMPLETE. 71/71 tests passing. Next: Phase 6 (KAOS kernel module system).
 
 ## Architecture
 

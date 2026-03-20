@@ -60,7 +60,7 @@ This is how modern OS graphics stacks work. Metal, Wayland compositors, DirectCo
 
 **Surface model:** every app task renders into its own off-screen surface — a pixel buffer it owns entirely. The compositor assembles all visible surfaces into the final frame and blits to VRAM. Apps never touch the compositing buffer or VRAM directly.
 
-**Double buffering per surface:** each surface has a front buffer (compositor reads) and a back buffer (app draws). `surface_present()` swaps the pointers atomically. This eliminates tearing without locks — the compositor always reads a complete frame, and the app always writes without stalling.
+**Double buffering per surface:** each surface has two pixel buffers (`bufs[0]` and `bufs[1]`) and a `buf_index` byte. The compositor reads `bufs[buf_index]` (the front buffer) and the app draws to `bufs[1 - buf_index]` (the back buffer). `surface_present()` flips `buf_index` with a single byte write, which is atomic on x86 — no locks, no `cli/sti`. The compositor always reads a complete frame, and the app always writes without stalling.
 
 **Per-task surface binding:** the currently bound surface is stored in the task struct, not a global. When a draw call executes, it looks up the current task's bound surface. This prevents preemption bugs — if task A is preempted mid-draw, task B binds its own surface, and when A resumes it continues drawing to its own surface correctly.
 
@@ -106,9 +106,12 @@ Apps do not wait for the compositor. If an app renders faster than 60fps, only t
 #define CHAOS_GL_MAX_SURFACES  32
 
 typedef struct {
-    /* Double-buffered pixel data — PMM allocated, BGRX */
-    uint32_t*  front;       /* compositor reads this — complete frame */
-    uint32_t*  back;        /* app draws to this */
+    /* Double-buffered pixel data — PMM allocated, BGRX.
+     * bufs[buf_index] is the front buffer (compositor reads).
+     * bufs[1 - buf_index] is the back buffer (app draws).
+     * surface_present() flips buf_index (single byte write, atomic on x86). */
+    uint32_t*  bufs[2];
+    uint8_t    buf_index;   /* 0 or 1 — compositor reads bufs[buf_index] */
     uint16_t*  zbuffer;     /* depth buffer — PMM allocated, NULL if 2D-only */
     int        width;
     int        height;
@@ -117,6 +120,11 @@ typedef struct {
     int        screen_x;
     int        screen_y;
     int        z_order;     /* lower = further back, compositor sorts ascending */
+
+    /* Compositor blending */
+    uint8_t    alpha;       /* surface-wide opacity: 255 = fully opaque (default),
+                             * 0 = fully transparent. Compositor uses this for
+                             * modal overlays, fade effects, etc. */
 
     /* State */
     bool       in_use;
@@ -162,7 +170,7 @@ void chaos_gl_surface_bind(int handle);
  * (if present) to ZDEPTH_MAX. Call at the start of each draw sequence. */
 void chaos_gl_surface_clear(int handle, uint32_t color_bgrx);
 
-/* Swap front and back buffers (atomic pointer swap, not memcpy).
+/* Flip buf_index (single byte write — atomic on x86, no lock needed).
  * The compositor will read the new front buffer on its next compose pass.
  * The app can immediately start drawing to the (now-swapped) back buffer.
  * Sets dirty = true. */
@@ -170,8 +178,16 @@ void chaos_gl_surface_present(int handle);
 
 /* Position and ordering */
 void chaos_gl_surface_set_position(int handle, int x, int y);
+void chaos_gl_surface_get_position(int handle, int* x, int* y);
 void chaos_gl_surface_set_zorder(int handle, int z);
+int  chaos_gl_surface_get_zorder(int handle);
 void chaos_gl_surface_set_visible(int handle, bool visible);
+
+/* Surface-wide opacity for compositor blending.
+ * 255 = fully opaque (default), 0 = fully transparent.
+ * Used for modal overlays, fade effects, window transparency.
+ * The compositor blends surfaces with alpha < 255 over the layers below. */
+void chaos_gl_surface_set_alpha(int handle, uint8_t alpha);
 
 /* Resize a surface. Frees old PMM pages, allocates new ones.
  * Content is lost — both front and back are cleared.
@@ -206,19 +222,36 @@ The window manager uses surface positions, dimensions, z-order, and visibility t
  * Called by the compositor task once per frame. NOT called by apps.
  *
  * Compose pass:
- *   1. Clear compositing buffer to desktop_clear_color
- *   2. Sort visible surfaces by z_order (ascending — low z drawn first)
- *   3. For each visible surface: blit surface->front to compositing buffer
- *      at (screen_x, screen_y), clipped to screen bounds
- *   4. rep movsd: compositing buffer → VRAM
- *   5. Clear dirty flags on all composited surfaces
+ *   1. Build dirty region: union of screen-space rects for all surfaces
+ *      with dirty==true. If no surface is dirty, skip steps 2-5 entirely
+ *      (no VRAM write — pure idle frame).
+ *   2. Clear dirty region of compositing buffer to desktop_clear_color
+ *   3. Sort visible surfaces by z_order (ascending — low z drawn first)
+ *   4. For each visible surface that intersects the dirty region:
+ *      - If surface alpha == 255: opaque blit of surface->bufs[buf_index]
+ *        to compositing buffer at (screen_x, screen_y), clipped to
+ *        screen bounds and dirty region
+ *      - If surface alpha == 0: skip entirely
+ *      - If surface alpha 1-254: alpha-blend each pixel:
+ *          dst = (src * alpha + dst * (255 - alpha)) / 255
+ *        (fast approximation: (src * alpha + dst * (255 - alpha) + 128) >> 8)
+ *   5. rep movsd: only dirty rows of compositing buffer → VRAM
+ *   6. Clear dirty flags on all composited surfaces
  *
  * Surfaces with visible=false are skipped entirely.
- * No register/unregister — visibility controls inclusion. */
+ * No register/unregister — visibility controls inclusion.
+ *
+ * Dirty-region optimisation: when a surface with alpha < 255 is dirty,
+ * the dirty region expands to include ALL surfaces below it that overlap
+ * (since their content shows through). This is the cost of transparency. */
 void chaos_gl_compose(uint32_t desktop_clear_color);
 ```
 
 **No separate register/unregister step.** A surface exists or it doesn't. `visible` controls whether the compositor includes it. Destroying a surface automatically removes it from compositing.
+
+**Dirty-region tracking:** the compositor maintains a dirty rectangle (union of all dirty surface screen-space rects). Only the dirty region is re-composited and blitted to VRAM. For a mostly-static desktop, this reduces VRAM writes from 3MB/frame to near zero. When a transparent surface (alpha < 255) is dirty, the dirty region must expand to include surfaces below it that it overlaps, since their content shows through and must be re-composited.
+
+**Surface alpha blending:** surfaces with `alpha == 255` (the default) are opaque — fast `rep movsd` blit, no per-pixel math. Surfaces with `alpha` between 1 and 254 use per-pixel alpha blending during compositing. `alpha == 0` surfaces are invisible (equivalent to `visible = false` but preserves the visible flag for restore). This enables modal dialog overlays, fade-in/out effects, and window transparency without per-pixel alpha in the surface buffer itself.
 
 **The compositing buffer** is the old "back buffer" — a single BGRX pixel array the size of the screen, PMM-allocated. Only the compositor writes to it. Only `chaos_gl_compose()` blits it to VRAM.
 
@@ -318,7 +351,7 @@ static inline uint16_t ndc_to_zdepth(float ndc_z) {
 
 ## Pixel Format
 
-**BGRX 32bpp throughout.** Blue in the low byte, matching VBE hardware layout. No conversion needed on blit. Alpha byte (X) is unused and ignored in the compositing buffer and surface buffers.
+**BGRX 32bpp throughout.** Blue in the low byte, matching VBE hardware layout. No conversion needed on blit. Surface pixel buffers and the compositing buffer store BGRX — the high byte (X) is unused per-pixel. Surface-wide transparency is controlled by the `alpha` field on the surface struct (see Compositor section), not by per-pixel alpha in the surface buffer. Per-pixel alpha is only used during `blit_alpha()` source data (BGRA input → BGRX surface).
 
 ```c
 /* Colour construction helpers */
@@ -419,17 +452,25 @@ void chaos_gl_blit_alpha(int x, int y, int w, int h,
 Uses Claude Mono — the custom 8x16 bitmap font. Each glyph is 8 pixels wide, 16 pixels tall. Full printable ASCII.
 
 ```c
-/* Draw a single character. Returns x advance (always 8 for Claude Mono). */
-int  chaos_gl_char(int x, int y, char c, uint32_t fg, uint32_t bg);
+/* Text flags — OR together */
+#define CHAOS_GL_TEXT_BG_TRANSPARENT  0x0   /* default: skip bg pixels */
+#define CHAOS_GL_TEXT_BG_FILL        0x1   /* fill bg pixels with bg colour */
+
+/* Draw a single character. Returns x advance (always 8 for Claude Mono).
+ * flags: CHAOS_GL_TEXT_BG_TRANSPARENT or CHAOS_GL_TEXT_BG_FILL.
+ * When BG_TRANSPARENT (default, 0), only foreground pixels are written.
+ * When BG_FILL, background pixels are filled with bg colour (including black). */
+int  chaos_gl_char(int x, int y, char c, uint32_t fg, uint32_t bg, uint32_t flags);
 
 /* Draw a null-terminated string. Returns width in pixels drawn.
- * bg = 0 means transparent background (only fg pixels written). */
-int  chaos_gl_text(int x, int y, const char* str, uint32_t fg, uint32_t bg);
+ * flags: same as chaos_gl_char. */
+int  chaos_gl_text(int x, int y, const char* str,
+                   uint32_t fg, uint32_t bg, uint32_t flags);
 
 /* Draw string with word-wrap within max_w pixels.
  * Returns total height in pixels used. */
-int  chaos_gl_text_wrapped(int x, int y, int max_w,
-                            const char* str, uint32_t fg, uint32_t bg);
+int  chaos_gl_text_wrapped(int x, int y, int max_w, const char* str,
+                            uint32_t fg, uint32_t bg, uint32_t flags);
 
 /* Measure string width in pixels without drawing. */
 int  chaos_gl_text_width(const char* str);
@@ -438,9 +479,7 @@ int  chaos_gl_text_width(const char* str);
 int  chaos_gl_text_height_wrapped(int max_w, const char* str);
 ```
 
-**Transparent background:** when `bg == 0` (not black — 0 is the sentinel), only foreground pixels are written. Background pixels are skipped. This allows text to be drawn over any surface. If you actually want black background, use `CHAOS_GL_RGB(0,0,1)` and it's close enough, or we add an explicit transparency flag in a future revision.
-
-**Note:** bg transparency via sentinel 0 is a known wart. A cleaner solution is a flags parameter or a separate `chaos_gl_text_transparent()` call. Deferred to v2.1 — for now, 0 means transparent.
+**Transparent background (default):** when `flags == 0` (CHAOS_GL_TEXT_BG_TRANSPARENT), only foreground pixels are written. Background pixels are skipped. This allows text to be drawn over any surface content. To fill the background with a solid colour (including true black `0x00000000`), pass `CHAOS_GL_TEXT_BG_FILL`.
 
 ---
 
@@ -464,6 +503,9 @@ Per-triangle call: chaos_gl_triangle(v0, v1, v2)
     |
     +-> Near-plane clip — Sutherland-Hodgman, 0-2 output triangles
     |
+    +-> Guard-band clip — reject triangles entirely outside 4x viewport
+    |       in clip space (see Guard-Band Clipping section below)
+    |
     +-> Perspective divide — clip.xyz / clip.w -> NDC [-1,1]^3
     |
     +-> Viewport transform
@@ -471,13 +513,16 @@ Per-triangle call: chaos_gl_triangle(v0, v1, v2)
     |       screen_y = (1.0 - ndc_y) * surface_h / 2   (Y-flip: NDC up = screen down)
     |
     +-> Rasterize (barycentric coords, perspective-correct interpolation)
-            Per pixel:
-                Fragment shader -> gl_frag_out_t (color + discard flag)
-                Z-test (16-bit)
-                Write to surface back buffer (if not discarded and z passes)
+    |       Bounding box clamped to surface dimensions (0..w-1, 0..h-1)
+    |       Per pixel:
+    |           Fragment shader -> gl_frag_out_t (color + discard flag)
+    |           Z-test (16-bit)
+    |           Write to surface back buffer (if not discarded and z passes)
 ```
 
 **Viewport transform uses surface dimensions**, not screen dimensions. A 3D app rendering into a 400x300 surface has a 400x300 viewport.
+
+**Rasterizer bounding-box clamp:** the rasterizer computes the triangle's screen-space bounding box and clamps it to `[0, surface_width-1]` x `[0, surface_height-1]` before iterating pixels. This is critical for correctness (prevents out-of-bounds writes) and performance (limits iteration for triangles that extend off-screen). Combined with guard-band clipping, this keeps the iteration region small.
 
 ### Shader Interface
 
@@ -543,6 +588,46 @@ typedef gl_frag_out_t   (*gl_frag_fn)(gl_fragment_in_t in, void* uniforms);
 int chaos_gl_clip_near(gl_vertex_out_t in[3],
                        gl_vertex_out_t out_verts[4],
                        float z_near);
+```
+
+### Guard-Band Clipping
+
+After near-plane clipping and before perspective divide, triangles can still have vertices that project far outside the viewport. Without guard-band clipping, these triangles produce enormous screen-space bounding boxes, causing the rasterizer to iterate over millions of off-screen pixels — a classic software renderer performance trap.
+
+**Guard-band clip** tests post-near-clip triangles against an expanded clip volume: `±GUARD_BAND_MULT * w` on X and Y (where `w` is the clip-space W coordinate). Triangles entirely outside the guard band are trivially rejected. Triangles that cross the guard band but stay within it are passed through to the rasterizer — the BB clamp handles the rest. Only triangles that extend beyond the guard band on X or Y need Sutherland-Hodgman clipping against those planes.
+
+```c
+#define CHAOS_GL_GUARD_BAND_MULT  4.0f  /* 4x viewport = generous guard band */
+
+/* Test if a post-near-clip triangle is entirely outside the guard band.
+ * Returns true if the triangle should be discarded (all 3 verts outside
+ * the same guard-band edge). Called after near-plane clip, before
+ * perspective divide.
+ *
+ * Guard-band test in clip space (per vertex):
+ *   inside guard band if: -MULT*w <= x <= MULT*w  AND  -MULT*w <= y <= MULT*w
+ * Trivial reject if all 3 vertices are outside the SAME edge. */
+bool chaos_gl_guardband_reject(gl_vertex_out_t v[3]);
+
+/* Clip triangle against guard-band edges (±MULT*w on X and Y).
+ * Only called when a triangle extends beyond the guard band but is not
+ * trivially rejected. Uses Sutherland-Hodgman against the 4 side planes.
+ * out_verts: room for 8 vertices (convex polygon after 4-plane clip).
+ * Returns number of output vertices (3-8), or 0 if fully clipped.
+ * Caller triangulates the output polygon as a fan: (0,1,2), (0,2,3), ... */
+int chaos_gl_guardband_clip(gl_vertex_out_t in[3],
+                             gl_vertex_out_t out_verts[8]);
+```
+
+**In practice, most triangles pass the guard-band trivial-accept test** (all vertices inside `±4w`) and go straight to the rasterizer with just a BB clamp — no per-vertex clipping needed. Only extreme cases (very large triangles near the camera edges) trigger the full guard-band Sutherland-Hodgman clip. The `GUARD_BAND_MULT` of 4 means a triangle must extend to 4x the viewport before clipping kicks in — at that point the rasterizer BB would be 16x the viewport area, so clipping is justified.
+
+**Pipeline integration:**
+```
+near_clip_result = chaos_gl_clip_near(...)
+for each output triangle from near clip:
+    if chaos_gl_guardband_reject(tri): skip (stats: triangles_clipped++)
+    else if all 3 verts inside guard band: proceed to perspective divide
+    else: chaos_gl_guardband_clip(tri, ...) → 0-6 sub-triangles
 ```
 
 ### Built-in Shaders
@@ -822,16 +907,15 @@ void chaos_gl_blit_keyed(int x, int y, int w, int h,
 void chaos_gl_blit_alpha(int x, int y, int w, int h,
                           const uint32_t* src, int src_pitch);
 
-/* Text (Claude Mono 8x16) */
-int  chaos_gl_char(int x, int y, char c, uint32_t fg, uint32_t bg);
-int  chaos_gl_text(int x, int y, const char* str, uint32_t fg, uint32_t bg);
-int  chaos_gl_text_wrapped(int x, int y, int max_w,
-                            const char* str, uint32_t fg, uint32_t bg);
+/* Text (Claude Mono 8x16) — flags: 0 = transparent bg, CHAOS_GL_TEXT_BG_FILL = solid bg */
+int  chaos_gl_char(int x, int y, char c, uint32_t fg, uint32_t bg, uint32_t flags);
+int  chaos_gl_text(int x, int y, const char* str,
+                   uint32_t fg, uint32_t bg, uint32_t flags);
+int  chaos_gl_text_wrapped(int x, int y, int max_w, const char* str,
+                            uint32_t fg, uint32_t bg, uint32_t flags);
 int  chaos_gl_text_width(const char* str);
 int  chaos_gl_text_height_wrapped(int max_w, const char* str);
 ```
-
-**bg == 0 in text calls means transparent background** — only foreground pixels written. This is a known wart (can't render true-black background). Addressed in v2.1 with an explicit flags parameter.
 
 ### Stats
 
@@ -882,8 +966,11 @@ chaos_gl.surface_bind(surf)
 chaos_gl.surface_clear(surf, color_bgrx)
 chaos_gl.surface_present(surf)
 chaos_gl.surface_set_position(surf, x, y)
+local x, y = chaos_gl.surface_get_position(surf)       -- returns x, y
 chaos_gl.surface_set_zorder(surf, z)
+local z = chaos_gl.surface_get_zorder(surf)             -- returns z
 chaos_gl.surface_set_visible(surf, visible)
+chaos_gl.surface_set_alpha(surf, alpha)                 -- 0-255, default 255
 chaos_gl.surface_resize(surf, w, h)
 
 -- Camera / projection (operates on bound surface)
@@ -920,12 +1007,13 @@ chaos_gl.pixel(x, y, color)
 chaos_gl.blit(x, y, w, h, tex_handle)
 chaos_gl.blit_keyed(x, y, w, h, tex_handle, key_color)
 
--- 2D text (Claude Mono 8x16, bg=0 means transparent)
-chaos_gl.text(x, y, str, fg, bg)
-chaos_gl.text_wrapped(x, y, max_w, str, fg, bg)
+-- 2D text (Claude Mono 8x16)
+-- flags: 0 = transparent bg (default), 1 = solid bg fill
+chaos_gl.text(x, y, str, fg, bg, flags)
+chaos_gl.text_wrapped(x, y, max_w, str, fg, bg, flags)
 chaos_gl.text_width(str)                    -- returns pixel width
 chaos_gl.text_height_wrapped(max_w, str)    -- returns pixel height without drawing
-chaos_gl.char(x, y, c, fg, bg)
+chaos_gl.char(x, y, c, fg, bg, flags)
 
 -- Stats
 local s = chaos_gl.get_stats()           -- per-surface stats
@@ -1064,7 +1152,8 @@ Generated by the build system. Required on disk before Phase 5 tests run.
 4. **Rounded rect:** draw a rounded rect with radius 10. Corners are visibly rounded.
 5. **Circle:** draw a filled circle and an outline circle. Both correct shape.
 6. **Line:** draw from (0,0) to (w-1,h-1) on a surface. Both endpoints hit exactly.
-7. **Text:** render "Hello AIOS" with Claude Mono. Characters correct shape, spacing correct. Transparent background — underlying colour shows through where bg==0.
+7. **Text transparent bg:** render "Hello AIOS" with Claude Mono and `flags=0` (transparent bg). Characters correct shape, spacing correct. Underlying colour shows through background pixels.
+7b. **Text solid bg:** render "Hello AIOS" with `flags=CHAOS_GL_TEXT_BG_FILL` and `bg=0x00000000` (true black). Background pixels filled with black — no transparency. Proves flags-based bg works for all colours including black.
 8. **Text wrap:** render a long string with max_w=200. Wraps at word boundary. `text_height_wrapped()` matches actual rendered height.
 9. **Clip rect:** push clip (100,100,200,200). Draw a large rect that extends beyond it. Only the intersection is visible. Pop clip — full rect draws.
 10. **Clip stack:** push two nested clips. Inner clip is correctly intersected with outer. Pop both — full region drawable again.
@@ -1084,6 +1173,9 @@ Generated by the build system. Required on disk before Phase 5 tests run.
 21. **Gouraud:** `"gouraud"` shader on `/test/sphere.cobj`. Smooth gradient. No per-triangle breaks.
 22. **Normal map:** `"normalmap"` on `/test/quad.cobj`. `/test/flat_normal.raw` -> no bump. `/test/bump_normal.raw` -> bumpy.
 23. **Near clip:** camera near plane intersects triangle. `triangles_clipped > 0` in stats. No crash, no divide-by-zero, no garbage.
+23b. **Guard-band reject:** draw a triangle positioned entirely off-screen to the right (all vertices outside 4x viewport). `triangles_clipped` increments, no pixels drawn, no crash.
+23c. **Guard-band clip:** draw a very large triangle with one vertex on-screen and two far off-screen (beyond 4x viewport). Triangle clips correctly — visible portion renders, no rasterizer explosion, frame time remains reasonable.
+23d. **Rasterizer BB clamp:** draw a triangle partially off-screen (vertices at negative coordinates). Only visible portion renders. No out-of-bounds write. Stats show correct pixel counts.
 24. **Discard:** custom shader discards pixels where UV.u < 0.5. Left half of quad transparent, right half renders. Z not written for discarded pixels (verify by drawing something behind — it shows through the left half).
 25. **Stats:** no-clip scene: `triangles_culled + triangles_drawn == triangles_submitted`. Pixel counters sum to total rasterised fragments. Frame timers > 0 and plausible.
 
@@ -1092,7 +1184,11 @@ Generated by the build system. Required on disk before Phase 5 tests run.
 26. **Surface create/destroy:** create surface, verify PMM pages allocated (front + back). Destroy, verify all pages freed.
 27. **Surface render:** create surface, bind it, draw a red rect, present, set visible, compose. Red rect appears at correct screen position.
 28. **Multi-surface compose:** create 3 surfaces at different z-orders with different colours. Compose — verify z-order is correct (higher z draws on top of lower z).
-29. **Double buffer correctness:** app draws to back buffer, compositor reads front buffer simultaneously. No tearing — front buffer contains previous complete frame until present() swaps.
+29. **Double buffer correctness:** app draws to back buffer (bufs[1-buf_index]), compositor reads front buffer (bufs[buf_index]) simultaneously. No tearing — front buffer contains previous complete frame until present() flips buf_index.
+29b. **Surface alpha opaque:** create surface with default alpha (255). Compose over a coloured background — surface fully covers background at its position.
+29c. **Surface alpha blended:** create surface, `set_alpha(128)`. Compose over a coloured background — surface pixels blend with background (50% mix). Both colours visible.
+29d. **Surface alpha zero:** create surface, `set_alpha(0)`. Compose — surface not visible despite `visible=true`. Background shows through completely.
+29e. **Position/zorder getters:** create surface, `set_position(100, 200)`, `set_zorder(5)`. `get_position()` returns (100, 200). `get_zorder()` returns 5.
 30. **Surface resize:** create surface, render to it, resize it, verify old content gone, render again — works. PMM pages from old size freed.
 31. **Clip stack per surface:** bind surface A, push clip. Bind surface B — B has its own clean clip stack. Bind A again — A's clip is still pushed.
 32. **3D state per surface:** bind surface A, set camera to position X. Bind surface B, set camera to position Y. Bind A — camera is still at position X.
@@ -1104,6 +1200,8 @@ Generated by the build system. Required on disk before Phase 5 tests run.
 35. **Clip over 3D:** 3D scene renders on a surface, then 2D clip rect restricts a GUI panel drawn on top. 3D scene visible outside the panel, panel content clipped inside.
 36. **Lua scene:** Lua script: create surface with depth, load `/test/cube.cobj`, set perspective, spin cube for 60 frames, draw 2D FPS counter text each frame, present each frame. Compose shows spinning cube with overlay. No crash, no leak.
 37. **Memory stability:** after 1000 compose cycles, PMM and heap stats identical to post-init. Zero per-frame allocation.
+37b. **Dirty-region idle:** no surface has dirty flag set. `chaos_gl_compose()` skips compositing and VRAM blit entirely. Compose time is near-zero.
+37c. **Dirty-region partial:** one small surface (100x100) is dirty in the corner of the screen. Only that region is re-composited and blitted to VRAM. Compose time is significantly less than a full-screen compose.
 38. **Shutdown:** `chaos_gl_shutdown()`. All surfaces destroyed, compositing buffer freed, PMM returns to pre-init levels. Re-calling `chaos_gl_init()` succeeds.
 
 ---
@@ -1115,14 +1213,15 @@ Generated by the build system. Required on disk before Phase 5 tests run.
 | Role | Universal OS graphics subsystem — 2D and 3D |
 | Language | C, RENDERER_CFLAGS (SSE2, -march=core2) |
 | Pixel format | BGRX 32bpp throughout |
-| Surface model | Double-buffered (front/back swap on present) |
-| Compositor | Sorts visible surfaces by z-order, blits to compositing buffer, rep movsd to VRAM |
+| Surface model | Double-buffered (index-based swap — single byte write, atomic on x86) |
+| Surface alpha | Per-surface uint8_t opacity (255=opaque default, 0=transparent) |
+| Compositor | Dirty-region tracked, per-surface alpha blending, rep movsd dirty rows to VRAM |
 | Per-task binding | Bound surface stored in task struct, not global |
-| Compositing buffer | PMM, PAGE_RESERVED, single rep movsd blit to VRAM |
+| Compositing buffer | PMM, PAGE_RESERVED, dirty-region blit to VRAM |
 | Z-buffer | 16-bit fixed-point, NDC z -> [0, 65535], late-z, per-surface (opt-in) |
-| 2D | Full primitive set, clip stack (per-surface), Claude Mono text, image blit |
+| 2D | Full primitive set, clip stack (per-surface), Claude Mono text (flags-based bg), image blit |
 | 3D | Full perspective pipeline, z-buffer, shader interface, state per-surface |
-| Clipping | Near-plane only (Sutherland-Hodgman, 0-2 output tris) |
+| Clipping | Near-plane + guard-band (4x viewport, Sutherland-Hodgman), rasterizer BB clamp |
 | Backface culling | Clip-space signed area |
 | Fragment discard | gl_frag_out_t.discard — no magic colour |
 | UV interpolation | Perspective-correct |

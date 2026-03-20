@@ -20,7 +20,7 @@ INCDIR   = include
 # Reason: IRQ handlers run without fxsave/fxrstor protection. Compiler-emitted
 # SSE in kernel code silently clobbers task XMM registers mid-interrupt.
 CFLAGS = -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror \
-         -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 -I.
+         -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 -I. -D__AIOS_KERNEL__
 
 # Renderer module (Phase 9) — SSE2 allowed for SIMD inner loops.
 # ONLY for files under renderer/. Never kernel/, drivers/, or boot/.
@@ -33,6 +33,9 @@ RENDERER_CFLAGS = -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror \
 # Assembler flags
 NASMFLAGS_BIN = -f bin
 NASMFLAGS_ELF = -f elf32 -g
+
+# Host tools
+PYTHON = python3
 
 # Linker flags
 LDFLAGS = -T linker.ld -nostdlib
@@ -62,6 +65,13 @@ C_SOURCES = \
     $(DRVDIR)/mouse.c \
     $(DRVDIR)/input.c \
     $(DRVDIR)/ata.c \
+    $(KERNDIR)/chaos/chaos_block.c \
+    $(KERNDIR)/chaos/chaos_alloc.c \
+    $(KERNDIR)/chaos/chaos_inode.c \
+    $(KERNDIR)/chaos/chaos_format.c \
+    $(KERNDIR)/chaos/chaos_dir.c \
+    $(KERNDIR)/chaos/chaos.c \
+    $(KERNDIR)/chaos/chaos_fsck.c \
     $(INCDIR)/string.c
 
 # Kernel ASM sources (ELF format, linked into kernel)
@@ -126,8 +136,9 @@ $(BUILDDIR)/os.img: $(BUILDDIR)/stage1.bin $(BUILDDIR)/stage2.bin $(BUILDDIR)/ke
 	dd if=$(BUILDDIR)/stage2.bin of=$(BUILDDIR)/stage2_padded.bin bs=8192 conv=sync 2>/dev/null
 	cat $(BUILDDIR)/stage2_padded.bin >> $(BUILDDIR)/os.img
 	cat $(BUILDDIR)/kernel.elf >> $(BUILDDIR)/os.img
-	@# Pad to 4MB for ATA write testing (8192 sectors)
-	truncate -s 4M $(BUILDDIR)/os.img
+	@# Pad to 16MB and format ChaosFS at LBA 2048 (1MB offset)
+	truncate -s 16M $(BUILDDIR)/os.img
+	$(PYTHON) tools/mkfs_chaos.py $(BUILDDIR)/os.img 2048
 	@echo "Disk image: $(BUILDDIR)/os.img ($$(wc -c < $(BUILDDIR)/os.img | tr -d ' ') bytes)"
 
 # Run in QEMU

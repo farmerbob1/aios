@@ -1,4 +1,27 @@
-# AIOS v2 — Claude Code Project Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Build & Run
+
+```bash
+# REQUIRED: set PATH before any make/build commands
+export PATH="/c/i686-elf-tools/bin:/c/msys64/usr/bin:/c/msys64/mingw64/bin:$PATH"
+
+# Build everything (kernel + 512MB disk image + format ChaosFS)
+make clean && make all
+
+# Run in QEMU (interactive, serial on stdio)
+make run
+
+# Run headless and capture serial output for test verification
+rm -f build/serial.log && timeout 90 "/c/Program Files/qemu/qemu-system-x86_64.exe" \
+  -cpu core2duo -m 256 -vga std -drive format=raw,file=build/os.img \
+  -serial file:build/serial.log -no-reboot -no-shutdown -display none 2>/dev/null
+
+# Check test results from serial log
+grep -E "Phase [0-9]:|accept" build/serial.log
+```
 
 ## Toolchain Locations (EXACT PATHS — do not search for these)
 
@@ -10,65 +33,83 @@
 | make | `/c/msys64/usr/bin/make` |
 | QEMU | `/c/Program Files/qemu/qemu-system-x86_64.exe` |
 | Python 3 | `python3` (in PATH) |
-| Host GCC (mingw64) | `/c/msys64/mingw64/bin/gcc` (has temp dir issues — use Python for host tools) |
-
-## Build Commands
-
-```bash
-# Set PATH for build tools
-export PATH="/c/i686-elf-tools/bin:/c/msys64/usr/bin:/c/msys64/mingw64/bin:$PATH"
-
-# Build everything (kernel + disk image + format ChaosFS)
-make clean && make all
-
-# Run in QEMU (interactive, serial on stdio)
-make run
-
-# Run in QEMU headless, capture serial to file (for test verification)
-rm -f build/serial.log && timeout 90 "/c/Program Files/qemu/qemu-system-x86_64.exe" \
-  -cpu core2duo -m 256 -vga std \
-  -drive format=raw,file=build/os.img \
-  -serial file:build/serial.log \
-  -no-reboot -no-shutdown -display none 2>/dev/null
-```
+| Host GCC | `/c/msys64/mingw64/bin/gcc` — has Windows temp dir permission issues, use Python for host tools instead |
 
 ## Project Status
 
-Phases 0-4 COMPLETE. 50/50 tests passing. Next: Phase 5 (ChaosGL).
+Phases 0-4 COMPLETE. 50/50 tests passing. Next: Phase 5 (ChaosGL graphics subsystem).
 
-## Disk Image
+## Architecture
 
-- `build/os.img` — 512MB
-- Sectors 0-2047: Stage1 + Stage2 + Kernel ELF (padded to 1MB)
-- Sectors 2048+: ChaosFS region (LBA_START = 2048)
-- Formatted by `python3 tools/mkfs_chaos.py build/os.img 2048` during build
+This is a hobby OS targeting i686 (QEMU `-cpu core2duo`). Everything runs in ring 0, identity-mapped (virt == phys). No userspace, no higher-half kernel.
 
-## Key Compiler Flags
+### Boot Chain
+`stage1.asm` (MBR, 512B) → `stage2.asm` (real mode, 8KB: E820, VBE, ELF loader) → `kernel_main()` at physical 0x100000. The `boot_info` struct at 0x10000 passes memory map, framebuffer info, and kernel location to the kernel. Linker script (`linker.ld`) places kernel at 0x100000; entry point is `kernel_main`.
 
-- **Kernel/drivers**: `-mno-sse -mno-mmx -mno-sse2 -D__AIOS_KERNEL__` (no SSE in interrupt-context code)
-- **Renderer (Phase 5+)**: `-msse2 -mfpmath=sse` via `RENDERER_CFLAGS` (SSE2 allowed for SIMD)
-- **Host tools**: Use Python, not C (mingw64 gcc has Windows temp directory permission issues)
+### Kernel Init Order (kernel/main.c)
+```
+serial_init → vga_init → boot_info validation
+→ PMM → VMM → Heap (Phase 1)
+→ GDT/TSS → IDT → ISR → IRQ → FPU → Timer → Scheduler (Phase 2)
+→ Keyboard → Mouse → Framebuffer HAL → ATA (Phase 3)
+→ ChaosFS mount (Phase 4)
+→ sti → RDTSC calibrate → test_runner task → sleep forever
+```
+
+### Memory Subsystem (Phase 1)
+- **PMM** (`kernel/pmm.c`): bitmap-based page allocator, next-fit, dynamic bitmap placement
+- **VMM** (`kernel/vmm.c`): 4KB page tables, selective identity mapping, pre-allocates all page tables before enabling paging (panics if new PT needed post-paging)
+- **Heap** (`kernel/heap.c`): routes to slab (≤2048B) or buddy (>2048B) via `page_ownership[]` table (extern, not static — slab.c needs access)
+
+### Interrupt & Scheduler (Phase 2)
+- **GDT** has 5 entries (null, code 0x08, data 0x10, TSS 0x18, reserved). `gdt_set_kernel_stack()` updates TSS esp0 on every context switch.
+- **ISR/IRQ stubs** are in NASM (`isr_stubs.asm`, `irq_stubs.asm`). C handlers in `isr.c`/`irq.c`. IRQ sends EOI BEFORE calling handler (critical for task_switch inside timer IRQ).
+- **Scheduler** (`kernel/scheduler.c`): `schedule()` has `pushf/cli` re-entrancy guard, `__attribute__((noinline))`, and compiler barrier after `task_switch`. New tasks go through `task_entry_trampoline` (does `sti`) because `schedule()` runs with IF=0. Idle task uses `sti; hlt`.
+- **Context switch** (`scheduler_asm.asm`): saves/restores EBP/EBX/ESI/EDI + ESP swap. Args at `[esp+20]` and `[esp+24]` after 4 pushes.
+
+### Drivers (Phase 3)
+- **Framebuffer** is HAL-only (`fb_get_info()`). No drawing primitives — ALL rendering goes through ChaosGL (Phase 5).
+- **Keyboard**: IRQ1, E0 prefix state machine, scancodes remapped to 128+ for extended keys, dual-mode (GUI events or text-mode ASCII buffer).
+- **Mouse**: IRQ12, 3-byte PS/2 packet assembly with sync recovery, desktop mode + raw delta mode.
+- **ATA**: PIO mode, 28-bit LBA, 3 retries with soft reset. 512-byte sectors.
+
+### ChaosFS (Phase 4, `kernel/chaos/`)
+Extent-based filesystem at LBA 2048 (1MB offset). 4KB blocks (8 sectors each). Key invariants:
+- `chaos_inode_evict()` must be called BEFORE `chaos_free_inode()` to prevent cache ghost writes
+- `chaos_open()` checks for free fd BEFORE creating files on disk
+- Write ordering: data blocks → inode → directory entry. Bitmap is write-through.
+- On-disk structs in `chaos_types.h` (shared with host tools via `__AIOS_KERNEL__` guard). Inode = 128 bytes (pad1[32]), dirent = 64 bytes (reserved[4]).
+
+### Disk Image Layout
+`build/os.img` is 512MB:
+- Sectors 0–2047: Stage1 + Stage2 + Kernel ELF (1MB)
+- Sectors 2048+: ChaosFS (formatted by `python3 tools/mkfs_chaos.py` during build)
+
+## Two Compiler Flag Sets
+
+**Kernel/drivers** (`CFLAGS`): `-mno-sse -mno-mmx -mno-sse2 -D__AIOS_KERNEL__` — prevents compiler from emitting SSE instructions that would corrupt FPU state during interrupts.
+
+**Renderer** (`RENDERER_CFLAGS`): `-msse2 -mfpmath=sse` — SSE2 enabled for ChaosGL SIMD inner loops. ONLY for files under `renderer/`.
+
+The scheduler's `fxsave`/`fxrstor` protects renderer tasks' XMM registers across context switches.
 
 ## Spec Documents
 
-- `documents/AIOS-v2-foundation-spec-revised.md` — Phases 0-3
-- `documents/ChaosFS-v2-spec-revised.md` — Phase 4
-- `documents/ChaosGL-spec.md` — Phase 5
-- `documents/KAOS-module-spec.md` — Phase 6
+| Phase | Spec |
+|-------|------|
+| 0-3 | `documents/AIOS-v2-foundation-spec-revised.md` |
+| 4 | `documents/ChaosFS-v2-spec-revised.md` |
+| 5 | `documents/ChaosGL-spec.md` |
+| 6 | `documents/KAOS-module-spec.md` |
 
-## Tools
+Always re-read the relevant spec before implementing a phase. Specs are the source of truth for struct layouts, API signatures, acceptance tests, and design contracts.
 
-- `tools/mkfs_chaos.py` — Host-side ChaosFS format tool (run during build)
-- `tools/chaosfs_explorer.py` — GUI file browser for ChaosFS disk images
-- `explorer.bat` — Launches the GUI explorer
-- `run.bat` — Launches QEMU
+## Testing
 
-## Architecture Rules
+All tests are in `kernel/main.c`. A `test_runner_main` task (PRIORITY_HIGH) runs Phase 2 → Phase 3 → Phase 4 tests sequentially. Phase 1 tests run synchronously before the scheduler starts. Each phase prints `Phase N: X/Y tests passed` to serial. The test runner must complete within 90 seconds (QEMU timeout for headless runs).
 
-- Framebuffer driver is HAL-only (`fb_get_info`). ALL rendering goes through ChaosGL.
-- Timer (PIT 250Hz) and scheduler are in Phase 2, not Phase 3.
-- `schedule()` has `pushf/cli` re-entrancy guard and `noinline` + compiler barrier.
-- New tasks go through `task_entry_trampoline` which does `sti` before entry function.
-- Idle task uses `sti; hlt` (not bare `hlt`).
-- ChaosFS inode cache must `chaos_inode_evict()` before `chaos_free_inode()` to prevent ghost writes.
-- `chaos_open()` checks for free fd BEFORE creating files on disk.
+## Host Tools
+
+- `tools/mkfs_chaos.py` — formats ChaosFS region in disk image (run automatically by Makefile)
+- `tools/chaosfs_explorer.py` — tkinter GUI for browsing/editing ChaosFS images (launch via `explorer.bat`)
+- `tools/mkfs_chaos.c` — C version of format tool (unused — mingw gcc has temp dir issues on this system)

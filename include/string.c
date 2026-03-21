@@ -1,6 +1,7 @@
 /* AIOS v2 — Minimal string/memory function implementations */
 
 #include "string.h"
+#include "kaos/export.h"
 
 void* memcpy(void* dest, const void* src, size_t n) {
     uint8_t* d = (uint8_t*)dest;
@@ -80,3 +81,13 @@ char* strncpy(char* dest, const char* src, size_t n) {
         dest[i] = '\0';
     return dest;
 }
+
+KAOS_EXPORT(memcpy)
+KAOS_EXPORT(memset)
+KAOS_EXPORT(memcmp)
+KAOS_EXPORT(memmove)
+KAOS_EXPORT(strlen)
+KAOS_EXPORT(strcmp)
+KAOS_EXPORT(strncmp)
+KAOS_EXPORT(strcpy)
+KAOS_EXPORT(strncpy)

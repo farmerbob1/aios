@@ -6,6 +6,7 @@
 #include "../include/string.h"
 #include "../drivers/serial.h"
 #include "../drivers/timer.h"
+#include "../include/kaos/export.h"
 
 /* Assembly context switch */
 extern void task_switch(uint32_t* old_esp, uint32_t new_esp);
@@ -375,3 +376,10 @@ int scheduler_get_cpu_usage(void) {
     if (w == 0) return 0;
     return (int)(((w - i) * 100) / w);
 }
+
+KAOS_EXPORT(task_create)
+KAOS_EXPORT(task_sleep)
+KAOS_EXPORT(task_yield)
+KAOS_EXPORT(task_exit)
+KAOS_EXPORT(task_kill)
+KAOS_EXPORT(task_get_current)

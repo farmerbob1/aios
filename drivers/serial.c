@@ -3,6 +3,7 @@
 
 #include "serial.h"
 #include "../include/io.h"
+#include "../include/kaos/export.h"
 
 #define PORT SERIAL_COM1
 
@@ -146,3 +147,7 @@ void serial_printf(const char* fmt, ...) {
 
     __builtin_va_end(args);
 }
+
+KAOS_EXPORT(serial_print)
+KAOS_EXPORT(serial_printf)
+KAOS_EXPORT(serial_putchar)

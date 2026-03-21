@@ -27,6 +27,12 @@ CFLAGS = -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror \
 RENDERER_CFLAGS = -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror \
                   -O2 -g -std=c11 -march=core2 -msse2 -mfpmath=sse -I. -D__AIOS_KERNEL__
 RENDDIR = renderer
+MODDIR  = modules
+
+# Module compilation — same target arch as kernel, -c only (no linking)
+MODULE_CFLAGS = -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror \
+                -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 \
+                -Iinclude -c
 
 # Assembler flags
 NASMFLAGS_BIN = -f bin
@@ -75,6 +81,11 @@ C_SOURCES = \
     $(KERNDIR)/phase3_tests.c \
     $(KERNDIR)/phase4_tests.c \
     $(KERNDIR)/phase5_tests.c \
+    $(KERNDIR)/phase6_tests.c \
+    $(KERNDIR)/kaos/kaos.c \
+    $(KERNDIR)/kaos/kaos_loader.c \
+    $(KERNDIR)/kaos/kaos_sym.c \
+    $(KERNDIR)/kaos/kaos_io_wrappers.c \
     $(INCDIR)/string.c
 
 # Renderer sources — compiled with RENDERER_CFLAGS (SSE2 enabled)
@@ -103,6 +114,10 @@ RENDERER_OBJECTS = $(patsubst %.c,$(BUILDDIR)/%.o,$(RENDERER_SOURCES))
 ASM_OBJECTS      = $(patsubst %.asm,$(BUILDDIR)/%.o,$(ASM_SOURCES))
 ALL_OBJECTS      = $(C_OBJECTS) $(RENDERER_OBJECTS) $(ASM_OBJECTS)
 
+# Module .kaos files (compiled from modules/*.c)
+MODULE_SOURCES = $(wildcard $(MODDIR)/*.c)
+MODULE_KAOS    = $(patsubst $(MODDIR)/%.c,$(BUILDDIR)/$(MODDIR)/%.kaos,$(MODULE_SOURCES))
+
 # ===== Targets =====
 
 .PHONY: all clean run run-debug stage2_check
@@ -127,6 +142,11 @@ stage2_check: $(BUILDDIR)/stage2.bin
 		echo "ERROR: Stage 2 is $$SIZE bytes (max 8192)"; exit 1; \
 	fi; \
 	echo "Stage 2 size: $$SIZE / 8192 bytes"
+
+# Module source -> .kaos (compiled ET_REL object, no linking)
+$(BUILDDIR)/$(MODDIR)/%.kaos: $(MODDIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(MODULE_CFLAGS) -o $@ $<
 
 # Renderer source -> object (SSE2 enabled, must be before generic rule)
 $(BUILDDIR)/$(RENDDIR)/%.o: $(RENDDIR)/%.c
@@ -153,7 +173,7 @@ $(BUILDDIR)/kernel.elf: $(ALL_OBJECTS) linker.ld
 # Layout: sector 0      = stage1 (512B)
 #         sectors 1-16  = stage2 (8192B, zero-padded)
 #         sector 17+    = kernel ELF (variable size)
-$(BUILDDIR)/os.img: $(BUILDDIR)/stage1.bin $(BUILDDIR)/stage2.bin $(BUILDDIR)/kernel.elf stage2_check
+$(BUILDDIR)/os.img: $(BUILDDIR)/stage1.bin $(BUILDDIR)/stage2.bin $(BUILDDIR)/kernel.elf stage2_check $(MODULE_KAOS)
 	@echo "Assembling disk image..."
 	cp $(BUILDDIR)/stage1.bin $(BUILDDIR)/os.img
 	dd if=$(BUILDDIR)/stage2.bin of=$(BUILDDIR)/stage2_padded.bin bs=8192 conv=sync 2>/dev/null
@@ -163,6 +183,7 @@ $(BUILDDIR)/os.img: $(BUILDDIR)/stage1.bin $(BUILDDIR)/stage2.bin $(BUILDDIR)/ke
 	truncate -s 512M $(BUILDDIR)/os.img
 	$(PYTHON) tools/mkfs_chaos.py $(BUILDDIR)/os.img 2048
 	$(PYTHON) tools/gen_assets.py $(BUILDDIR)/os.img 2048
+	$(PYTHON) tools/gen_modules.py $(BUILDDIR)/os.img 2048 $(BUILDDIR)/$(MODDIR)
 	@echo "Disk image: $(BUILDDIR)/os.img ($$(wc -c < $(BUILDDIR)/os.img | tr -d ' ') bytes)"
 
 # Run in QEMU

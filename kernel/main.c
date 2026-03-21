@@ -31,11 +31,13 @@
 #include "../drivers/ata.h"
 #include "chaos/chaos.h"
 #include "../renderer/chaos_gl.h"
+#include "kaos/kaos.h"
 #include "phase1_tests.h"
 #include "phase2_tests.h"
 #include "phase3_tests.h"
 #include "phase4_tests.h"
 #include "phase5_tests.h"
+#include "phase6_tests.h"
 
 #define CHAOS_FS_LBA_START 2048  /* 1MB offset into disk */
 
@@ -48,6 +50,7 @@ static void test_runner_main(void) {
     phase3_acceptance_tests();
     phase4_acceptance_tests();
     phase5_acceptance_tests();
+    phase6_acceptance_tests();
     task_exit();
 }
 
@@ -152,6 +155,10 @@ void kernel_main(struct boot_info* info) {
     /* ── Phase 5: ChaosGL ─────────────────────────── */
     r = chaos_gl_init();
     boot_log("ChaosGL", r >= 0 ? INIT_OK : INIT_FAIL);
+
+    /* ── Phase 6: KAOS ──────────────────────────────── */
+    r = kaos_init();
+    boot_log("KAOS module system", r);
 
     /* Create test runner task before enabling interrupts */
     int test_id = task_create("test_runner", test_runner_main, PRIORITY_HIGH);

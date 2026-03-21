@@ -10,6 +10,7 @@
 #include "../include/string.h"
 #include "../drivers/serial.h"
 #include "panic.h"
+#include "../include/kaos/export.h"
 
 /* ── Page ownership table ───────────────────────────────── */
 uint8_t* page_ownership = 0;
@@ -229,3 +230,11 @@ uint32_t heap_get_slab_used(void) {
 uint32_t heap_get_buddy_used(void) {
     return buddy_get_total_alloc();
 }
+
+KAOS_EXPORT(kmalloc)
+KAOS_EXPORT(kfree)
+KAOS_EXPORT(kzmalloc)
+KAOS_EXPORT(kmalloc_aligned)
+KAOS_EXPORT(kfree_aligned)
+KAOS_EXPORT(krealloc)
+KAOS_EXPORT(kmalloc_usable_size)

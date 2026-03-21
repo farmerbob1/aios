@@ -37,7 +37,7 @@ grep -E "Phase [0-9]:|accept" build/serial.log
 
 ## Project Status
 
-Phases 0-5 COMPLETE. 71/71 tests passing. Next: Phase 6 (KAOS kernel module system).
+Phases 0-6 COMPLETE. 111/111 tests passing. Next: Phase 7.
 
 ## Architecture
 
@@ -85,6 +85,14 @@ Extent-based filesystem at LBA 2048 (1MB offset). 4KB blocks (8 sectors each). K
 - Sectors 0–2047: Stage1 + Stage2 + Kernel ELF (1MB)
 - Sectors 2048+: ChaosFS (formatted by `python3 tools/mkfs_chaos.py` during build)
 
+### KAOS Module System (Phase 6, `kernel/kaos/`)
+Runtime kernel module loading. Modules are `.kaos` files (ELF ET_REL relocatable objects) stored on ChaosFS under `/modules/`. Key components:
+- **Symbol Table** (`kaos_sym.c`): `KAOS_EXPORT()` macro places entries in `.kaos_export` linker section. `kaos_sym_lookup()` scans at runtime. 52 kernel symbols exported.
+- **ELF Loader** (`kaos_loader.c`): Parses ET_REL, copies SHF_ALLOC sections to PMM pages, processes R_386_32/R_386_PC32 relocations against kernel symbol table.
+- **Module Manager** (`kaos.c`): Registry of up to 32 modules. Handles dependencies (DFS with cycle detection), essential flag, auto-load from `/modules/`.
+- **Module SDK** (`include/kaos/`): `module.h` (KAOS_MODULE macro), `kernel.h` (convenience includes), `export.h` (KAOS_EXPORT).
+- Modules compiled with `MODULE_CFLAGS` (-mno-sse, -c only, no linking). ChaosFS open requires `CHAOS_O_RDONLY` (0x01) flag.
+
 ## Two Compiler Flag Sets
 
 **Kernel/drivers** (`CFLAGS`): `-mno-sse -mno-mmx -mno-sse2 -D__AIOS_KERNEL__` — prevents compiler from emitting SSE instructions that would corrupt FPU state during interrupts.
@@ -106,10 +114,12 @@ Always re-read the relevant spec before implementing a phase. Specs are the sour
 
 ## Testing
 
-All tests are in `kernel/main.c`. A `test_runner_main` task (PRIORITY_HIGH) runs Phase 2 → Phase 3 → Phase 4 tests sequentially. Phase 1 tests run synchronously before the scheduler starts. Each phase prints `Phase N: X/Y tests passed` to serial. The test runner must complete within 90 seconds (QEMU timeout for headless runs).
+Tests are in `kernel/phase{1..6}_tests.c`. A `test_runner_main` task (PRIORITY_HIGH) runs Phase 2 → Phase 6 tests sequentially. Phase 1 tests run synchronously before the scheduler starts. Each phase prints `Phase N: X/Y tests passed` to serial. The test runner must complete within 90 seconds (QEMU timeout for headless runs).
 
 ## Host Tools
 
 - `tools/mkfs_chaos.py` — formats ChaosFS region in disk image (run automatically by Makefile)
 - `tools/chaosfs_explorer.py` — tkinter GUI for browsing/editing ChaosFS images (launch via `explorer.bat`)
+- `tools/gen_assets.py` — generates ChaosGL test assets into ChaosFS (run automatically by Makefile)
+- `tools/gen_modules.py` — compiles and injects KAOS test modules into ChaosFS (run automatically by Makefile)
 - `tools/mkfs_chaos.c` — C version of format tool (unused — mingw gcc has temp dir issues on this system)

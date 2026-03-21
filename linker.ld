@@ -15,6 +15,12 @@ SECTIONS
     .rodata : { *(.rodata*) }
     .data : { *(.data*) }
 
+    .kaos_export : {
+        __kaos_export_start = .;
+        KEEP(*(.kaos_export))
+        __kaos_export_end = .;
+    }
+
     .bss : {
         __bss_start = .;
         *(.bss*)

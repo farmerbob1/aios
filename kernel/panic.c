@@ -4,6 +4,7 @@
 #include "panic.h"
 #include "../drivers/serial.h"
 #include "../drivers/vga.h"
+#include "../include/kaos/export.h"
 
 void kernel_panic(const char* msg) {
     /* Serial output */
@@ -21,3 +22,5 @@ void kernel_panic(const char* msg) {
         __asm__ __volatile__("cli; hlt");
     }
 }
+
+KAOS_EXPORT(kernel_panic)

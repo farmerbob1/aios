@@ -5,6 +5,7 @@
 #include "pmm.h"
 #include "../include/string.h"
 #include "../drivers/serial.h"
+#include "../include/kaos/export.h"
 
 /* ── State ──────────────────────────────────────────────── */
 static uint8_t* bitmap;
@@ -247,3 +248,8 @@ uint32_t pmm_get_used_pages(void)     { return used_pages; }
 uint32_t pmm_get_max_phys_addr(void)  { return max_phys_addr_val; }
 uint32_t pmm_get_bitmap_addr(void)    { return bitmap_phys_addr; }
 uint32_t pmm_get_bitmap_size(void)    { return bitmap_size; }
+
+KAOS_EXPORT(pmm_alloc_page)
+KAOS_EXPORT(pmm_alloc_pages)
+KAOS_EXPORT(pmm_free_page)
+KAOS_EXPORT(pmm_free_pages)

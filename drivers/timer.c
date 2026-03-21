@@ -4,6 +4,7 @@
 #include "../include/io.h"
 #include "../kernel/irq.h"
 #include "../kernel/scheduler.h"
+#include "../include/kaos/export.h"
 
 #define PIT_CH0_DATA 0x40
 #define PIT_CMD      0x43
@@ -57,3 +58,7 @@ void timer_wait(uint32_t ms) {
         __asm__ __volatile__("hlt");
     }
 }
+
+KAOS_EXPORT(timer_get_ticks)
+KAOS_EXPORT(timer_get_frequency)
+KAOS_EXPORT(timer_wait)

@@ -8,6 +8,7 @@
 #include "../../drivers/serial.h"
 #include "../../drivers/timer.h"
 #include "../../kernel/heap.h"
+#include "../../include/kaos/export.h"
 
 /* Extern from chaos modules */
 extern void     chaos_block_set_lba(uint32_t lba_start);
@@ -634,3 +635,12 @@ const char* chaos_label(void) { return mounted ? fs_label : ""; }
 
 bool chaos_is_mounted(void) { return mounted; }
 struct chaos_superblock* chaos_get_superblock(void) { return &sb; }
+
+KAOS_EXPORT(chaos_open)
+KAOS_EXPORT(chaos_close)
+KAOS_EXPORT(chaos_read)
+KAOS_EXPORT(chaos_write)
+KAOS_EXPORT(chaos_seek)
+KAOS_EXPORT(chaos_stat)
+KAOS_EXPORT(chaos_mkdir)
+KAOS_EXPORT(chaos_unlink)

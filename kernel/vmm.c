@@ -8,6 +8,7 @@
 #include "../include/string.h"
 #include "../drivers/serial.h"
 #include "panic.h"
+#include "../include/kaos/export.h"
 
 /* ── Address decomposition ──────────────────────────────── */
 #define PD_INDEX(v)    ((v) >> 22)
@@ -194,3 +195,7 @@ init_result_t vmm_init(struct boot_info* info) {
     serial_print("[VMM] paging enabled\n");
     return INIT_OK;
 }
+
+KAOS_EXPORT(vmm_map_page)
+KAOS_EXPORT(vmm_map_range)
+KAOS_EXPORT(vmm_unmap_page)

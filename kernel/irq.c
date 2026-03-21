@@ -4,6 +4,7 @@
 #include "idt.h"
 #include "isr.h"
 #include "../include/io.h"
+#include "../include/kaos/export.h"
 
 #define PIC1_CMD  0x20
 #define PIC1_DATA 0x21
@@ -117,3 +118,7 @@ void irq_common_handler(struct registers* regs) {
         irq_handlers[irq_num]();
     }
 }
+
+KAOS_EXPORT(irq_register_handler)
+KAOS_EXPORT(irq_mask)
+KAOS_EXPORT(irq_unmask)

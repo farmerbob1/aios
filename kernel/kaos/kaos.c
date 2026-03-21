@@ -75,9 +75,9 @@ int kaos_load(const char* path) {
             const char* dep_name = deps[d];
             int dep_idx = kaos_find(dep_name);
             if (dep_idx < 0) {
-                /* Try to load dependency from /modules/<name>.kaos */
+                /* Try to load dependency from /system/modules/<name>.kaos */
                 char dep_path[128];
-                strncpy(dep_path, "/modules/", sizeof(dep_path) - 1);
+                strncpy(dep_path, "/system/modules/", sizeof(dep_path) - 1);
                 uint32_t plen = strlen(dep_path);
                 strncpy(dep_path + plen, dep_name,
                         sizeof(dep_path) - plen - 6);

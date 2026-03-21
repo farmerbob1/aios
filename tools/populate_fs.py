@@ -584,7 +584,7 @@ def main():
             print(f"populate_fs: wrote /test/{name} ({len(data)} bytes)")
 
         # ── Step 5: Compiled .kaos modules ──────────────
-        modules_ino = writer.ensure_directory("/modules")
+        modules_ino = writer.ensure_directory("/system/modules")
 
         if modules_dir and os.path.isdir(modules_dir):
             kaos_files = sorted(fn for fn in os.listdir(modules_dir) if fn.endswith('.kaos'))
@@ -593,13 +593,13 @@ def main():
                 with open(filepath, 'rb') as mf:
                     data = mf.read()
                 writer.create_file(modules_ino, fn, data)
-                print(f"populate_fs: wrote /modules/{fn} ({len(data)} bytes)")
+                print(f"populate_fs: wrote /system/modules/{fn} ({len(data)} bytes)")
 
         # Synthetic test modules
         for name, gen_fn in [("corrupt.kaos", make_corrupt_kaos), ("bad_abi.kaos", make_bad_abi_kaos)]:
             data = gen_fn()
             writer.create_file(modules_ino, name, data)
-            print(f"populate_fs: wrote /modules/{name} ({len(data)} bytes)")
+            print(f"populate_fs: wrote /system/modules/{name} ({len(data)} bytes)")
 
         # ── Step 6: Flush ───────────────────────────────
         writer.flush()

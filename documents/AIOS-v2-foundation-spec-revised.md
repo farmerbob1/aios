@@ -1519,7 +1519,7 @@ void kernel_main(struct boot_info* info) {
 
     /* ── Phase 6: KAOS Modules ────────────────────── */
     boot_log("KAOS module manager",          kaos_init());
-    kaos_load_all("/modules/");  /* auto-load boot modules */
+    kaos_load_all("/system/modules/");  /* auto-load boot modules */
 
     /* ── Foundation complete ───────────────────────── */
     boot_print("\nAIOS v2 foundation ready.\n");

@@ -39,7 +39,7 @@ void phase6_acceptance_tests(void) {
         int existing = kaos_find("hello");
         if (existing >= 0) kaos_unload(existing);
 
-        int idx = kaos_load("/modules/hello.kaos");
+        int idx = kaos_load("/system/modules/hello.kaos");
         const struct kaos_module* mod = (idx >= 0) ? kaos_get(idx) : 0;
         p6_check("2. load hello.kaos", idx >= 0);
         p6_check("2b. state == LOADED",
@@ -61,26 +61,26 @@ void phase6_acceptance_tests(void) {
 
     /* Test 4: Module calls kernel API */
     {
-        int idx = kaos_load("/modules/api_test.kaos");
+        int idx = kaos_load("/system/modules/api_test.kaos");
         p6_check("4. api_test module loaded + called kernel API", idx >= 0);
         if (idx >= 0) kaos_unload(idx);
     }
 
     /* Test 5: Reject corrupt file */
     {
-        int idx = kaos_load("/modules/corrupt.kaos");
+        int idx = kaos_load("/system/modules/corrupt.kaos");
         p6_check("5. reject corrupt ELF", idx < 0);
     }
 
     /* Test 6: Reject ABI mismatch */
     {
-        int idx = kaos_load("/modules/bad_abi.kaos");
+        int idx = kaos_load("/system/modules/bad_abi.kaos");
         p6_check("6. reject ABI mismatch", idx < 0);
     }
 
     /* Test 7: Reject unresolved symbol */
     {
-        int idx = kaos_load("/modules/unresolved.kaos");
+        int idx = kaos_load("/system/modules/unresolved.kaos");
         p6_check("7. reject unresolved symbol", idx < 0);
     }
 
@@ -94,7 +94,7 @@ void phase6_acceptance_tests(void) {
             kaos_unload(existing_b);
         }
 
-        int idx_a = kaos_load("/modules/dep_a.kaos");
+        int idx_a = kaos_load("/system/modules/dep_a.kaos");
         int idx_b = kaos_find("dep_b");
         p6_check("8. dep_a loaded (auto-loads dep_b)", idx_a >= 0 && idx_b >= 0);
 
@@ -114,7 +114,7 @@ void phase6_acceptance_tests(void) {
 
     /* Test 9: Essential module */
     {
-        int idx = kaos_load("/modules/essential.kaos");
+        int idx = kaos_load("/system/modules/essential.kaos");
         p6_check("9. essential module loaded", idx >= 0);
         if (idx >= 0) {
             int rc = kaos_unload(idx);
@@ -126,14 +126,14 @@ void phase6_acceptance_tests(void) {
 
     /* Test 10: Init failure */
     {
-        int idx = kaos_load("/modules/fail_init.kaos");
+        int idx = kaos_load("/system/modules/fail_init.kaos");
         p6_check("10. init failure returns -1", idx < 0);
     }
 
     /* Test 11: Memory cleanup */
     {
         uint32_t before = pmm_get_free_pages();
-        int idx = kaos_load("/modules/hello.kaos");
+        int idx = kaos_load("/system/modules/hello.kaos");
         if (idx >= 0) kaos_unload(idx);
         uint32_t after = pmm_get_free_pages();
         p6_check("11. PMM pages restored after load+unload", before == after);
@@ -150,9 +150,9 @@ void phase6_acceptance_tests(void) {
             }
         }
 
-        int i1 = kaos_load("/modules/hello.kaos");
-        int i2 = kaos_load("/modules/api_test.kaos");
-        int i3 = kaos_load("/modules/dep_b.kaos");
+        int i1 = kaos_load("/system/modules/hello.kaos");
+        int i2 = kaos_load("/system/modules/api_test.kaos");
+        int i3 = kaos_load("/system/modules/dep_b.kaos");
         int count = kaos_get_count();
         /* essential is still loaded, so count includes it */
         int non_essential_count = 0;
@@ -178,7 +178,7 @@ void phase6_acceptance_tests(void) {
             }
         }
 
-        kaos_load_all("/modules/");
+        kaos_load_all("/system/modules/");
         int hello_idx = kaos_find("hello");
         p6_check("13. auto-load finds hello (AUTOLOAD)", hello_idx >= 0);
 
@@ -201,7 +201,7 @@ void phase6_acceptance_tests(void) {
         int loaded_count = 0;
         int last_rc = 0;
         for (int i = 0; i < KAOS_MAX_MODULES + 1; i++) {
-            int rc = kaos_load("/modules/hello.kaos");
+            int rc = kaos_load("/system/modules/hello.kaos");
             if (rc >= 0) {
                 loaded_count++;
             } else {

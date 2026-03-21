@@ -12,7 +12,7 @@
 
 /* Module flags */
 #define KAOS_FLAG_ESSENTIAL  (1 << 0)  /* Cannot be unloaded */
-#define KAOS_FLAG_AUTOLOAD   (1 << 1)  /* Load at boot from /modules/ */
+#define KAOS_FLAG_AUTOLOAD   (1 << 1)  /* Load at boot from /system/modules/ */
 
 typedef struct {
     uint32_t    magic;

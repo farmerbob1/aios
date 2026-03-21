@@ -5,7 +5,7 @@
 
 ## Overview
 
-KAOS (Kernel Add-On System) provides runtime kernel extensibility for AIOS. Modules are `.kaos` files (ELF relocatable objects, ET_REL) stored on ChaosFS under `/modules/`. The kernel loads them at boot or on demand, processes relocations against a kernel symbol table, and calls their init function.
+KAOS (Kernel Add-On System) provides runtime kernel extensibility for AIOS. Modules are `.kaos` files (ELF relocatable objects, ET_REL) stored on ChaosFS under `/system/modules/`. The kernel loads them at boot or on demand, processes relocations against a kernel symbol table, and calls their init function.
 
 **Use cases:**
 - New hardware drivers (USB, NIC, audio)
@@ -169,7 +169,7 @@ Every module must define exactly one instance of this struct, named `kaos_module
 ```c
 /* Module flags — defined outside the struct for clean compilation with -Werror */
 #define KAOS_FLAG_ESSENTIAL  (1 << 0)  /* Cannot be unloaded (drivers) */
-#define KAOS_FLAG_AUTOLOAD   (1 << 1)  /* Load at boot from /modules/ */
+#define KAOS_FLAG_AUTOLOAD   (1 << 1)  /* Load at boot from /system/modules/ */
 
 typedef struct {
     uint32_t    magic;          /* Must be KAOS_MODULE_MAGIC */
@@ -473,7 +473,7 @@ typedef enum {
 struct kaos_module {
     kaos_state_t state;
     char         name[64];          /* from kaos_module_info.name */
-    char         path[128];         /* ChaosFS path (e.g., "/modules/hello.kaos") */
+    char         path[128];         /* ChaosFS path (e.g., "/system/modules/hello.kaos") */
 
     /* Memory */
     uint32_t     load_base;         /* physical address of allocated memory */
@@ -498,7 +498,7 @@ static int module_count;
  * See foundation spec kernel_main boot sequence for exact placement. */
 init_result_t kaos_init(void);
 
-/* Scan /modules/ and auto-load all .kaos files with KAOS_FLAG_AUTOLOAD. */
+/* Scan /system/modules/ and auto-load all .kaos files with KAOS_FLAG_AUTOLOAD. */
 void kaos_load_all(const char* directory);
 
 /* Load a specific module by ChaosFS path. Returns module index or -1. */
@@ -516,9 +516,9 @@ int kaos_get_count(void);
 
 ### Boot-Time Auto-Load
 
-During `kaos_load_all("/modules/")`:
+During `kaos_load_all("/system/modules/")`:
 
-1. `chaos_opendir("/modules/")`
+1. `chaos_opendir("/system/modules/")`
 2. For each `.kaos` file found:
    - Load into DISCOVERED state
    - Attempt full load (ELF parse, relocate, validate info)
@@ -772,7 +772,7 @@ modules/                # Module source files (built to .kaos)
 ## Phase 6 Acceptance Tests
 
 1. **Symbol table:** `kaos_sym_count() > 0` after kernel init. `kaos_sym_lookup("kmalloc")` returns non-zero address. `kaos_sym_lookup("nonexistent")` returns 0.
-2. **Load hello module:** `kaos_load("/modules/hello.kaos")` succeeds. Serial shows init message. Module state is KAOS_STATE_LOADED. `kaos_find("hello")` returns valid index.
+2. **Load hello module:** `kaos_load("/system/modules/hello.kaos")` succeeds. Serial shows init message. Module state is KAOS_STATE_LOADED. `kaos_find("hello")` returns valid index.
 3. **Unload hello module:** `kaos_unload(idx)` succeeds. Serial shows cleanup message. State is KAOS_STATE_UNLOADED. Memory freed (PMM pages returned).
 4. **Load module that calls kernel API:** Module does `serial_printf("test")` from `init()`. If the relocation was correct, the output appears. If wrong, it crashes (proves relocations work).
 5. **Reject corrupt module:** Load a file that isn't valid ELF. `kaos_load()` returns -1. No crash, error logged.
@@ -783,7 +783,7 @@ modules/                # Module source files (built to .kaos)
 10. **Init failure:** Module's `init()` returns -1. Module state is LOAD_FAILED. Memory freed. `cleanup()` NOT called.
 11. **Memory cleanup:** Load and unload 10 modules. PMM free page count returns to baseline. No memory leak.
 12. **modlist:** After loading 3 modules, `modlist` shell command shows all 3 with correct names, versions, and states.
-13. **Auto-load:** Place hello.kaos in `/modules/` with KAOS_FLAG_AUTOLOAD. `kaos_load_all("/modules/")` loads it automatically. Serial shows init message.
+13. **Auto-load:** Place hello.kaos in `/system/modules/` with KAOS_FLAG_AUTOLOAD. `kaos_load_all("/system/modules/")` loads it automatically. Serial shows init message.
 14. **Lua binding module:** (When Lua is available) Module calls `lua_register()` from `init()`. Lua script can call the registered function. No crash.
 15. **Max modules:** Load 32 modules (KAOS_MAX_MODULES). 33rd load returns -1 with "module table full" error.
 
@@ -805,6 +805,6 @@ modules/                # Module source files (built to .kaos)
 | Dependency resolution | DFS with grey/black visited-state cycle detection |
 | Unload safety | Manual (cleanup must deregister all callbacks) |
 | Essential flag | KAOS_FLAG_ESSENTIAL — cannot be unloaded |
-| Auto-load | KAOS_FLAG_AUTOLOAD — loaded at boot from /modules/ |
+| Auto-load | KAOS_FLAG_AUTOLOAD — loaded at boot from /system/modules/ |
 | Module CFLAGS | Same as kernel (-mno-sse, -c, no linking) |
 | Shell commands | `modload`, `modunload`, `modlist` |

@@ -86,10 +86,10 @@ Extent-based filesystem at LBA 2048 (1MB offset). 4KB blocks (8 sectors each). K
 - Sectors 2048+: ChaosFS (formatted and populated by `python3 tools/populate_fs.py` during build)
 
 ### KAOS Module System (Phase 6, `kernel/kaos/`)
-Runtime kernel module loading. Modules are `.kaos` files (ELF ET_REL relocatable objects) stored on ChaosFS under `/modules/`. Key components:
+Runtime kernel module loading. Modules are `.kaos` files (ELF ET_REL relocatable objects) stored on ChaosFS under `/system/modules/`. Key components:
 - **Symbol Table** (`kaos_sym.c`): `KAOS_EXPORT()` macro places entries in `.kaos_export` linker section. `kaos_sym_lookup()` scans at runtime. 52 kernel symbols exported.
 - **ELF Loader** (`kaos_loader.c`): Parses ET_REL, copies SHF_ALLOC sections to PMM pages, processes R_386_32/R_386_PC32 relocations against kernel symbol table.
-- **Module Manager** (`kaos.c`): Registry of up to 32 modules. Handles dependencies (DFS with cycle detection), essential flag, auto-load from `/modules/`.
+- **Module Manager** (`kaos.c`): Registry of up to 32 modules. Handles dependencies (DFS with cycle detection), essential flag, auto-load from `/system/modules/`.
 - **Module SDK** (`include/kaos/`): `module.h` (KAOS_MODULE macro), `kernel.h` (convenience includes), `export.h` (KAOS_EXPORT).
 - Modules compiled with `MODULE_CFLAGS` (-mno-sse, -c only, no linking). ChaosFS open requires `CHAOS_O_RDONLY` (0x01) flag.
 

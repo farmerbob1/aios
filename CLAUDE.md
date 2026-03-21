@@ -83,7 +83,7 @@ Extent-based filesystem at LBA 2048 (1MB offset). 4KB blocks (8 sectors each). K
 ### Disk Image Layout
 `build/os.img` is 512MB:
 - Sectors 0–2047: Stage1 + Stage2 + Kernel ELF (1MB)
-- Sectors 2048+: ChaosFS (formatted by `python3 tools/mkfs_chaos.py` during build)
+- Sectors 2048+: ChaosFS (formatted and populated by `python3 tools/populate_fs.py` during build)
 
 ### KAOS Module System (Phase 6, `kernel/kaos/`)
 Runtime kernel module loading. Modules are `.kaos` files (ELF ET_REL relocatable objects) stored on ChaosFS under `/modules/`. Key components:
@@ -118,8 +118,6 @@ Tests are in `kernel/phase{1..6}_tests.c`. A `test_runner_main` task (PRIORITY_H
 
 ## Host Tools
 
-- `tools/mkfs_chaos.py` — formats ChaosFS region in disk image (run automatically by Makefile)
+- `tools/populate_fs.py` — unified tool: formats ChaosFS, copies `harddrive/` contents, generates test assets, injects compiled .kaos modules (run automatically by Makefile)
 - `tools/chaosfs_explorer.py` — tkinter GUI for browsing/editing ChaosFS images (launch via `explorer.bat`)
-- `tools/gen_assets.py` — generates ChaosGL test assets into ChaosFS (run automatically by Makefile)
-- `tools/gen_modules.py` — compiles and injects KAOS test modules into ChaosFS (run automatically by Makefile)
-- `tools/mkfs_chaos.c` — C version of format tool (unused — mingw gcc has temp dir issues on this system)
+- `harddrive/` — static files placed on the ChaosFS disk image verbatim (directory structure preserved)

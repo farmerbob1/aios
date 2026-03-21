@@ -5,6 +5,7 @@
 #include "../../include/string.h"
 #include "../heap.h"
 #include "../../drivers/serial.h"
+#include "../../drivers/input.h"
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -20,6 +21,7 @@ extern void aios_register_input(lua_State *L);
 extern void aios_register_task(lua_State *L);
 extern void aios_register_debug(lua_State *L);
 extern void aios_register_chaosgl(lua_State *L);
+extern void aios_register_wm(lua_State *L);
 
 /* From lua_kaos.c */
 struct lua_kaos_binding {
@@ -40,7 +42,7 @@ struct lua_mem_stats {
     size_t limit_bytes;
 };
 
-#define LUA_DEFAULT_MEM_LIMIT (8 * 1024 * 1024)  /* 8MB */
+#define LUA_DEFAULT_MEM_LIMIT (12 * 1024 * 1024)  /* 12MB */
 
 /* Panic handler */
 static int lua_aios_panic(lua_State *L) {
@@ -134,14 +136,16 @@ lua_State *lua_state_create(void) {
     aios_register_task(L);
     aios_register_debug(L);
     aios_register_chaosgl(L);
+    aios_register_wm(L);
 
-    /* Register event type constants */
-    lua_pushinteger(L, 1); lua_setglobal(L, "EVENT_MOUSE_MOVE");
-    lua_pushinteger(L, 2); lua_setglobal(L, "EVENT_MOUSE_DOWN");
-    lua_pushinteger(L, 3); lua_setglobal(L, "EVENT_MOUSE_UP");
-    lua_pushinteger(L, 4); lua_setglobal(L, "EVENT_MOUSE_WHEEL");
-    lua_pushinteger(L, 5); lua_setglobal(L, "EVENT_KEY_DOWN");
-    lua_pushinteger(L, 6); lua_setglobal(L, "EVENT_KEY_UP");
+    /* Register event type constants — must match input.h enum */
+    lua_pushinteger(L, EVENT_KEY_DOWN);    lua_setglobal(L, "EVENT_KEY_DOWN");
+    lua_pushinteger(L, EVENT_KEY_UP);      lua_setglobal(L, "EVENT_KEY_UP");
+    lua_pushinteger(L, EVENT_MOUSE_MOVE);  lua_setglobal(L, "EVENT_MOUSE_MOVE");
+    lua_pushinteger(L, EVENT_MOUSE_DOWN);  lua_setglobal(L, "EVENT_MOUSE_DOWN");
+    lua_pushinteger(L, EVENT_MOUSE_UP);    lua_setglobal(L, "EVENT_MOUSE_UP");
+    /* These don't exist in the C enum yet but apps may reference them */
+    lua_pushinteger(L, 6); lua_setglobal(L, "EVENT_MOUSE_WHEEL");
     lua_pushinteger(L, 7); lua_setglobal(L, "EVENT_KEY_CHAR");
 
     /* Register KAOS module bindings */

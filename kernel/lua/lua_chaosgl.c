@@ -5,6 +5,7 @@
 #include "../../include/string.h"
 #include "../../drivers/serial.h"
 #include "../../renderer/chaos_gl.h"
+#include "../../renderer/compositor.h"
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -106,6 +107,14 @@ static int l_surface_get_size(lua_State *L) {
     lua_pushinteger(L, w);
     lua_pushinteger(L, h);
     return 2;
+}
+
+static int l_surface_set_color_key(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    bool enabled = lua_toboolean(L, 2);
+    uint32_t key = (uint32_t)luaL_optinteger(L, 3, 0x00FF00FF);
+    chaos_gl_surface_set_color_key(handle, enabled, key);
+    return 0;
 }
 
 /* ── 2D Primitives ───────────────────────────────────── */
@@ -444,6 +453,24 @@ static int l_free_model(lua_State *L) {
     return 0;
 }
 
+/* ── Compositor ──────────────────────────────────────── */
+
+static int l_compose(lua_State *L) {
+    uint32_t bg = (uint32_t)luaL_optinteger(L, 1, 0);
+    chaos_gl_compose(bg);
+    return 0;
+}
+
+/* ── Boot splash ─────────────────────────────────────── */
+
+extern void boot_splash_destroy(void);
+
+static int l_boot_splash_destroy(lua_State *L) {
+    (void)L;
+    boot_splash_destroy();
+    return 0;
+}
+
 /* ── Stats ───────────────────────────────────────────── */
 
 static void push_stats_table(lua_State *L, chaos_gl_stats_t *s) {
@@ -493,6 +520,7 @@ static const struct luaL_Reg chaosgl_funcs[] = {
     {"surface_set_alpha",    l_surface_set_alpha},
     {"surface_resize",       l_surface_resize},
     {"surface_get_size",     l_surface_get_size},
+    {"surface_set_color_key",l_surface_set_color_key},
     /* 2D primitives */
     {"rect",                 l_rect},
     {"rect_outline",         l_rect_outline},
@@ -532,6 +560,10 @@ static const struct luaL_Reg chaosgl_funcs[] = {
     /* Stats */
     {"get_stats",            l_get_stats},
     {"get_compose_stats",    l_get_compose_stats},
+    /* Compositor */
+    {"compose",              l_compose},
+    /* Boot splash */
+    {"boot_splash_destroy",  l_boot_splash_destroy},
     {NULL, NULL}
 };
 

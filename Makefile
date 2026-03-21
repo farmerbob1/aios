@@ -101,11 +101,15 @@ C_SOURCES = \
     $(KERNDIR)/phase6_tests.c \
     $(KERNDIR)/phase7_tests.c \
     $(KERNDIR)/phase8_tests.c \
+    $(KERNDIR)/phase9_tests.c \
+    $(KERNDIR)/phase10_tests.c \
+    $(KERNDIR)/boot_splash.c \
     $(KERNDIR)/kaos/kaos.c \
     $(KERNDIR)/kaos/kaos_loader.c \
     $(KERNDIR)/kaos/kaos_sym.c \
     $(KERNDIR)/kaos/kaos_io_wrappers.c \
-    $(INCDIR)/string.c
+    $(INCDIR)/string.c \
+    $(RENDDIR)/compositor.c
 
 # Renderer sources — compiled with RENDERER_CFLAGS (SSE2 enabled)
 RENDERER_SOURCES = \
@@ -113,7 +117,6 @@ RENDERER_SOURCES = \
     $(RENDDIR)/font.c \
     $(RENDDIR)/surface.c \
     $(RENDDIR)/2d.c \
-    $(RENDDIR)/compositor.c \
     $(RENDDIR)/pipeline.c \
     $(RENDDIR)/rasterizer.c \
     $(RENDDIR)/shaders.c \
@@ -146,7 +149,8 @@ LUA_KERNEL_SOURCES = \
     $(KERNDIR)/lua/lua_aios_input.c \
     $(KERNDIR)/lua/lua_aios_task.c \
     $(KERNDIR)/lua/lua_aios_debug.c \
-    $(KERNDIR)/lua/lua_chaosgl.c
+    $(KERNDIR)/lua/lua_chaosgl.c \
+    $(KERNDIR)/lua/lua_aios_wm.c
 
 # ===== Object files =====
 C_OBJECTS        = $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SOURCES))
@@ -229,7 +233,22 @@ $(BUILDDIR)/$(KERNDIR)/phase8_tests.o: $(KERNDIR)/phase8_tests.c
 	@mkdir -p $(dir $@)
 	$(CC) $(LUA_KERN_CFLAGS) -c $< -o $@
 
+# Phase 9 tests need Lua headers
+$(BUILDDIR)/$(KERNDIR)/phase9_tests.o: $(KERNDIR)/phase9_tests.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LUA_KERN_CFLAGS) -c $< -o $@
+
+# Phase 10 tests need Lua headers
+$(BUILDDIR)/$(KERNDIR)/phase10_tests.o: $(KERNDIR)/phase10_tests.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LUA_KERN_CFLAGS) -c $< -o $@
+
 # ===== Generic compilation rules =====
+
+# Compositor — compiled with kernel CFLAGS (no SSE) so it's safe to call from any task
+$(BUILDDIR)/$(RENDDIR)/compositor.o: $(RENDDIR)/compositor.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 # Renderer source -> object (SSE2 enabled, must be before generic rule)
 $(BUILDDIR)/$(RENDDIR)/%.o: $(RENDDIR)/%.c

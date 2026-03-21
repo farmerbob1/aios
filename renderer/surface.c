@@ -112,10 +112,25 @@ int chaos_gl_surface_create(int w, int h, bool has_depth) {
     return handle;
 }
 
+/* Global flag: when a visible surface is destroyed, force full-screen
+   recomposite on next compose() to erase its ghost. */
+static bool force_full_compose = false;
+
+bool chaos_gl_surface_needs_full_compose(void) {
+    bool r = force_full_compose;
+    force_full_compose = false;
+    return r;
+}
+
 void chaos_gl_surface_destroy(int handle) {
     if (!valid_handle(handle)) return;
 
     chaos_gl_surface_t* s = &surfaces[handle];
+
+    /* If this surface was visible, force full recomposite */
+    if (s->visible) {
+        force_full_compose = true;
+    }
 
     free_buffer((uint32_t)s->bufs[0], s->bufs_pages[0]);
     free_buffer((uint32_t)s->bufs[1], s->bufs_pages[1]);
@@ -173,8 +188,19 @@ void chaos_gl_surface_present(int handle) {
 
 void chaos_gl_surface_set_position(int handle, int x, int y) {
     if (!valid_handle(handle)) return;
-    surfaces[handle].screen_x = x;
-    surfaces[handle].screen_y = y;
+    chaos_gl_surface_t *s = &surfaces[handle];
+    if (s->screen_x != x || s->screen_y != y) {
+        /* Only save prev on first move since last compose — preserves
+           the original position across multiple moves in one frame */
+        if (!s->position_changed) {
+            s->prev_screen_x = s->screen_x;
+            s->prev_screen_y = s->screen_y;
+        }
+        s->position_changed = true;
+        s->screen_x = x;
+        s->screen_y = y;
+        s->dirty = true;
+    }
 }
 
 void chaos_gl_surface_get_position(int handle, int* x, int* y) {
@@ -185,7 +211,10 @@ void chaos_gl_surface_get_position(int handle, int* x, int* y) {
 
 void chaos_gl_surface_set_zorder(int handle, int z) {
     if (!valid_handle(handle)) return;
-    surfaces[handle].z_order = z;
+    if (surfaces[handle].z_order != z) {
+        surfaces[handle].z_order = z;
+        surfaces[handle].dirty = true;
+    }
 }
 
 int chaos_gl_surface_get_zorder(int handle) {
@@ -195,6 +224,11 @@ int chaos_gl_surface_get_zorder(int handle) {
 
 void chaos_gl_surface_set_visible(int handle, bool visible) {
     if (!valid_handle(handle)) return;
+    if (surfaces[handle].visible && !visible) {
+        /* Hiding a visible surface — force full recomposite to erase it */
+        extern bool force_full_compose;
+        force_full_compose = true;
+    }
     surfaces[handle].visible = visible;
 }
 
@@ -273,6 +307,12 @@ void chaos_gl_surface_get_size(int handle, int* w, int* h) {
     if (!valid_handle(handle)) return;
     if (w) *w = surfaces[handle].width;
     if (h) *h = surfaces[handle].height;
+}
+
+void chaos_gl_surface_set_color_key(int handle, bool enabled, uint32_t key) {
+    if (!valid_handle(handle)) return;
+    surfaces[handle].has_color_key = enabled;
+    surfaces[handle].color_key = key;
 }
 
 chaos_gl_surface_t* chaos_gl_get_surface(int handle) {

@@ -111,6 +111,14 @@ return {
     tooltip_border         = 0x00666666,
     tooltip_text           = 0x00FFFFFF,
 
+    -- Window Manager
+    taskbar_bg             = 0x002A2A2A,
+    taskbar_height         = 32,
+    desktop_bg             = 0x00283040,
+    text_warning           = 0x00FFCC00,
+    text_danger            = 0x00FF4444,
+    cursor_color           = 0x00FFFFFF,
+
     -- General
     focus_outline          = 0x00FF8800,
     focus_outline_width    = 2,

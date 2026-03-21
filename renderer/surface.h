@@ -53,9 +53,14 @@ typedef struct {
 
     int        screen_x;
     int        screen_y;
+    int        prev_screen_x;
+    int        prev_screen_y;
+    bool       position_changed;
     int        z_order;
 
     uint8_t    alpha;
+    bool       has_color_key;
+    uint32_t   color_key;
 
     bool       in_use;
     bool       visible;
@@ -91,8 +96,10 @@ void chaos_gl_surface_set_visible(int handle, bool visible);
 void chaos_gl_surface_set_alpha(int handle, uint8_t alpha);
 int  chaos_gl_surface_resize(int handle, int w, int h);
 void chaos_gl_surface_get_size(int handle, int* w, int* h);
+void chaos_gl_surface_set_color_key(int handle, bool enabled, uint32_t key);
 
 chaos_gl_surface_t* chaos_gl_get_surface(int handle);
 chaos_gl_surface_t* chaos_gl_get_bound_surface(void);
 void chaos_gl_surface_init(void);
 chaos_gl_stats_t chaos_gl_get_stats(void);
+bool chaos_gl_surface_needs_full_compose(void);

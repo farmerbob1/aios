@@ -230,6 +230,8 @@ init_result_t scheduler_init(void) {
     tasks[0].fpu_state = kernel_fpu_buf;
     tasks[0].fpu_initialized = true;
     tasks[0].chaos_gl_surface_handle = -1;
+    tasks[0].lua_state = NULL;
+    tasks[0].userdata = NULL;
     original_priority[0] = PRIORITY_NORMAL;
     /* esp will be saved on first task_switch */
 
@@ -304,6 +306,8 @@ int task_create(const char* name, void (*entry)(void), task_priority_t priority)
     tasks[slot].total_ticks = 0;
     tasks[slot].needs_cleanup = false;
     tasks[slot].chaos_gl_surface_handle = -1;
+    tasks[slot].lua_state = NULL;
+    tasks[slot].userdata = NULL;
     original_priority[slot] = priority;
 
     task_count++;

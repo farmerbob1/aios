@@ -95,7 +95,7 @@ void chaos_gl_compose(uint32_t desktop_clear_color) {
 
         if (s->dirty) {
             any_dirty = true;
-            /* Union this surface's screen rect into dirty region */
+            /* Union this surface's current screen rect into dirty region */
             int sx0 = s->screen_x;
             int sy0 = s->screen_y;
             int sx1 = s->screen_x + s->width;
@@ -104,11 +104,24 @@ void chaos_gl_compose(uint32_t desktop_clear_color) {
             if (sy0 < dirty_y0) dirty_y0 = sy0;
             if (sx1 > dirty_x1) dirty_x1 = sx1;
             if (sy1 > dirty_y1) dirty_y1 = sy1;
+
+            /* Also include old position if surface moved */
+            if (s->position_changed) {
+                int px0 = s->prev_screen_x;
+                int py0 = s->prev_screen_y;
+                int px1 = s->prev_screen_x + s->width;
+                int py1 = s->prev_screen_y + s->height;
+                if (px0 < dirty_x0) dirty_x0 = px0;
+                if (py0 < dirty_y0) dirty_y0 = py0;
+                if (px1 > dirty_x1) dirty_x1 = px1;
+                if (py1 > dirty_y1) dirty_y1 = py1;
+                s->position_changed = false;
+            }
         }
     }
 
-    /* On first compose, force full-screen dirty */
-    if (first_compose) {
+    /* Force full-screen dirty when a visible surface was destroyed or on first compose */
+    if (first_compose || chaos_gl_surface_needs_full_compose()) {
         any_dirty = true;
         dirty_x0 = 0;
         dirty_y0 = 0;
@@ -184,14 +197,27 @@ void chaos_gl_compose(uint32_t desktop_clear_color) {
         const uint32_t* front = s->bufs[s->buf_index];
         uint8_t alpha = s->alpha;
 
-        if (alpha == 255) {
-            /* Opaque blit */
+        if (alpha == 255 && !s->has_color_key) {
+            /* Opaque blit — fast path */
             for (int y = iy0; y < iy1; y++) {
                 int src_y = y - sy0;
                 int src_x = ix0 - sx0;
                 const uint32_t* srow = &front[src_y * s->width + src_x];
                 uint32_t* drow = &comp_buffer[y * screen_w + ix0];
                 memcpy(drow, srow, (uint32_t)(ix1 - ix0) * 4);
+            }
+        } else if (alpha == 255 && s->has_color_key) {
+            /* Opaque blit with color key transparency */
+            uint32_t key = s->color_key;
+            for (int y = iy0; y < iy1; y++) {
+                int src_y = y - sy0;
+                int src_x = ix0 - sx0;
+                const uint32_t* srow = &front[src_y * s->width + src_x];
+                uint32_t* drow = &comp_buffer[y * screen_w + ix0];
+                int span = ix1 - ix0;
+                for (int i = 0; i < span; i++) {
+                    if (srow[i] != key) drow[i] = srow[i];
+                }
             }
         } else {
             /* Alpha blend: surface-level alpha */

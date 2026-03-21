@@ -1,0 +1,81 @@
+/* AIOS v2 — Lua Task Management (Phase 7)
+ * Creates scheduler tasks that run Lua scripts from ChaosFS. */
+
+#include "../../include/types.h"
+#include "../../include/string.h"
+#include "../heap.h"
+#include "../scheduler.h"
+#include "../../drivers/serial.h"
+
+#include "lua.h"
+#include "lauxlib.h"
+
+/* External from lua_state.c */
+extern lua_State *lua_state_create(void);
+extern void lua_state_destroy(lua_State *L);
+
+/* External from lua_loader.c */
+extern int aios_dofile_internal(lua_State *L, const char *path);
+
+/* Per-task Lua context */
+struct lua_task_ctx {
+    char script_path[256];
+    lua_State *L;
+};
+
+/* Entry point for Lua tasks */
+static void lua_task_entry_wrapper(void) {
+    struct task *self = task_get_current();
+    struct lua_task_ctx *ctx = (struct lua_task_ctx *)self->userdata;
+
+    if (!ctx) {
+        serial_printf("[lua] Task %d has no context\n", self->id);
+        task_exit();
+        return;
+    }
+
+    /* Create isolated Lua state */
+    lua_State *L = lua_state_create();
+    if (!L) {
+        serial_printf("[lua] Failed to create state for %s\n", ctx->script_path);
+        kfree(ctx);
+        self->userdata = NULL;
+        task_exit();
+        return;
+    }
+    ctx->L = L;
+    self->lua_state = L;
+
+    /* Load and run the script */
+    int err = aios_dofile_internal(L, ctx->script_path);
+    if (err) {
+        const char *msg = lua_tostring(L, -1);
+        serial_printf("[lua] Error in %s: %s\n", ctx->script_path,
+                      msg ? msg : "(unknown)");
+    }
+
+    /* Cleanup */
+    self->lua_state = NULL;
+    lua_state_destroy(L);
+    kfree(ctx);
+    self->userdata = NULL;
+    task_exit();
+}
+
+/* Spawn a new Lua task from a script path */
+int lua_task_create(const char *script_path, const char *task_name,
+                    task_priority_t priority) {
+    struct lua_task_ctx *ctx = kmalloc(sizeof(struct lua_task_ctx));
+    if (!ctx) return -1;
+    memset(ctx, 0, sizeof(*ctx));
+    strncpy(ctx->script_path, script_path, sizeof(ctx->script_path) - 1);
+
+    int tid = task_create(task_name, lua_task_entry_wrapper, priority);
+    if (tid < 0) {
+        kfree(ctx);
+        return -1;
+    }
+
+    task_get(tid)->userdata = ctx;
+    return tid;
+}

@@ -32,31 +32,9 @@
 #include "chaos/chaos.h"
 #include "../renderer/chaos_gl.h"
 #include "kaos/kaos.h"
-#include "phase1_tests.h"
-#include "phase2_tests.h"
-#include "phase3_tests.h"
-#include "phase4_tests.h"
-#include "phase5_tests.h"
-#include "phase6_tests.h"
-#include "phase7_tests.h"
-#include "phase8_tests.h"
+#include "boot_splash.h"
 
 #define CHAOS_FS_LBA_START 2048  /* 1MB offset into disk */
-
-/* Tests in separate files: kernel/phase{1,2,3,4,5}_tests.c */
-
-/* ── Combined test runner ──────────────────────────── */
-
-static void test_runner_main(void) {
-    phase2_test_runner();
-    phase3_acceptance_tests();
-    phase4_acceptance_tests();
-    phase5_acceptance_tests();
-    phase6_acceptance_tests();
-    phase7_acceptance_tests();
-    phase8_acceptance_tests();
-    task_exit();
-}
 
 /* ================================================================
  * Kernel Main
@@ -104,8 +82,7 @@ void kernel_main(struct boot_info* info) {
     boot_log("Kernel heap (slab + buddy)", r);
     if (r >= INIT_FAIL) kernel_panic("Heap init failed");
 
-    /* ── Phase 1 acceptance tests ─────────────────── */
-    phase1_acceptance_tests();
+    /* Tests removed — use 'make test' for headless test runs */
 
     /* ── Phase 2: Multitasking ────────────────────── */
     serial_print("\n[AIOS v2] Phase 2: Multitasking init\n");
@@ -160,18 +137,29 @@ void kernel_main(struct boot_info* info) {
     r = chaos_gl_init();
     boot_log("ChaosGL", r >= 0 ? INIT_OK : INIT_FAIL);
 
+    /* Boot splash — graphical boot screen starts after ChaosGL */
+    boot_splash_init();
+    boot_splash_status("Initializing modules...");
+
     /* ── Phase 6: KAOS ──────────────────────────────── */
     r = kaos_init();
     boot_log("KAOS module system", r);
 
+    boot_splash_status("Loading modules...");
+    kaos_load_all("/system/modules/");
+
     /* ── Phase 7: Lua Runtime ──────────────────────────── */
+    boot_splash_status("Starting Lua runtime...");
     extern init_result_t lua_init(void);
     r = lua_init();
     boot_log("Lua 5.5 runtime", r);
 
-    /* Create test runner task before enabling interrupts */
-    int test_id = task_create("test_runner", test_runner_main, PRIORITY_HIGH);
-    if (test_id < 0) kernel_panic("Failed to create test runner");
+    boot_splash_status("Loading desktop...");
+
+    /* Launch desktop shell as a Lua task */
+    extern int lua_task_create(const char *script_path, const char *task_name,
+                               task_priority_t priority);
+    lua_task_create("/system/desktop.lua", "desktop", PRIORITY_NORMAL);
 
     /* Enable interrupts — timer starts, preemption begins */
     __asm__ __volatile__("sti");

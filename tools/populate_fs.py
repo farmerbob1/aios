@@ -774,6 +774,51 @@ def _draw_maximize(px, w, h):
     c = 0x00FFFFFF
     _draw_rect_outline(px, w, 3, 3, w - 6, h - 6, c)
 
+def _draw_cursor(px, w, h):
+    white = 0x00FFFFFF
+    black = 0x00000000
+    # Arrow pointer — white filled with black outline
+    # Approximately 20px tall arrow pointing upper-left
+    arrow = [
+        (0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7),
+        (0, 8), (0, 9), (0, 10), (0, 11), (0, 12), (0, 13), (0, 14), (0, 15),
+        (0, 16), (0, 17), (0, 18),
+        (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8),
+        (1, 9), (1, 10), (1, 11), (1, 12), (1, 13), (1, 14), (1, 15),
+        (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8),
+        (2, 9), (2, 10), (2, 11), (2, 12), (2, 13), (2, 14),
+        (3, 3), (3, 4), (3, 5), (3, 6), (3, 7), (3, 8), (3, 9),
+        (3, 10), (3, 11), (3, 12), (3, 13),
+        (4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (4, 9), (4, 10), (4, 11), (4, 12),
+        (5, 5), (5, 6), (5, 7), (5, 8), (5, 9), (5, 10), (5, 11),
+        (6, 6), (6, 7), (6, 8), (6, 9), (6, 10),
+        (7, 7), (7, 8), (7, 9),
+        (8, 8),
+    ]
+    # Draw black outline first
+    for x, y in arrow:
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                _set_px(px, w, x + dx, y + dy, black)
+    # Draw white fill
+    for x, y in arrow:
+        _set_px(px, w, x, y, white)
+
+def _draw_mod_default(px, w, h):
+    c = 0x00AAAAAA
+    # Puzzle piece shape
+    cx, cy = w // 2, h // 2
+    # Main body
+    _fill_rect(px, w, w // 4, h // 4, w // 2, h // 2, c)
+    # Top tab
+    _fill_rect(px, w, cx - 2, h // 4 - 3, 4, 4, c)
+    # Right tab
+    _fill_rect(px, w, w * 3 // 4, cy - 2, 4, 4, c)
+    # Bottom notch
+    _fill_rect(px, w, cx - 2, h * 3 // 4, 4, 3, 0x00666666)
+    # Left notch
+    _fill_rect(px, w, w // 4 - 3, cy - 2, 3, 4, 0x00666666)
+
 def _draw_missing(px, w, h):
     magenta_solid = 0x00FF00FF
     fg = 0x00FFFFFF
@@ -793,7 +838,7 @@ def gen_all_icons():
     icon_defs = [
         ("folder",   [16, 32, 48], _draw_folder),
         ("file",     [16, 32, 48], _draw_file),
-        ("text",     [16, 32],     _draw_text_file),
+        ("text",     [16, 32, 48], _draw_text_file),
         ("lua",      [16, 32],     _draw_lua),
         ("image",    [16, 32],     _draw_image),
         ("audio",    [16, 32],     _draw_audio),
@@ -808,6 +853,8 @@ def gen_all_icons():
         ("minimize", [16],         _draw_minimize),
         ("maximize", [16],         _draw_maximize),
         ("missing",  [16, 32],     _draw_missing),
+        ("cursor",   [24],         _draw_cursor),
+        ("mod_default", [32],      _draw_mod_default),
     ]
 
     for name, sizes, draw_fn in icon_defs:
@@ -886,11 +933,10 @@ def main():
             writer.create_file(icons_ino, name, data)
         print(f"populate_fs: wrote {len(icon_files)} icon files to /system/icons/")
 
-        # Synthetic test modules
-        for name, gen_fn in [("corrupt.kaos", make_corrupt_kaos), ("bad_abi.kaos", make_bad_abi_kaos)]:
-            data = gen_fn()
-            writer.create_file(modules_ino, name, data)
-            print(f"populate_fs: wrote /system/modules/{name} ({len(data)} bytes)")
+        # Test modules only needed for phase tests (disabled in interactive boot)
+        # for name, gen_fn in [("corrupt.kaos", make_corrupt_kaos), ("bad_abi.kaos", make_bad_abi_kaos)]:
+        #     data = gen_fn()
+        #     writer.create_file(modules_ino, name, data)
 
         # ── Step 6: Flush ───────────────────────────────
         writer.flush()

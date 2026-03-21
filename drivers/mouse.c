@@ -2,8 +2,12 @@
 
 #include "mouse.h"
 #include "input.h"
+#include "keyboard.h"
 #include "../include/io.h"
 #include "../kernel/irq.h"
+#include "serial.h"
+
+static int mouse_debug_count = 0;
 
 /* ── State ─────────────────────────────────────────── */
 
@@ -26,6 +30,12 @@ static void mouse_wait_write(void) {
 
 static void mouse_wait_read(void) {
     int timeout = 100000;
+    while (!(inb(0x64) & 0x01) && --timeout > 0);
+}
+
+/* Longer timeout for reset self-test (can take hundreds of ms) */
+static void mouse_wait_read_slow(void) {
+    int timeout = 10000000;
     while (!(inb(0x64) & 0x01) && --timeout > 0);
 }
 
@@ -55,6 +65,13 @@ void mouse_handler(void) {
     if (mouse_byte < 3) return;
     mouse_byte = 0;
 
+    if (mouse_debug_count < 3) {
+        serial_printf("[mouse] packet: %02x %02x %02x gui=%d\n",
+                      mouse_packet[0], mouse_packet[1], mouse_packet[2],
+                      input_is_gui_mode());
+        mouse_debug_count++;
+    }
+
     /* Check overflow bits — discard if set */
     if (mouse_packet[0] & 0xC0) return;
 
@@ -64,7 +81,8 @@ void mouse_handler(void) {
     if (mouse_packet[0] & 0x10) dx |= 0xFFFFFF00;  /* X sign bit */
     if (mouse_packet[0] & 0x20) dy |= 0xFFFFFF00;  /* Y sign bit */
 
-    /* Extract buttons */
+    /* Extract buttons and detect changes */
+    uint8_t old_buttons = mouse_buttons_val;
     mouse_buttons_val = mouse_packet[0] & 0x07;
 
     if (raw_mode) {
@@ -84,19 +102,46 @@ void mouse_handler(void) {
 
     /* Push input events if in GUI mode */
     if (input_is_gui_mode()) {
+        /* Capture keyboard modifier state for mouse events */
+        uint16_t mods = 0;
+        if (key_state[SC_LCTRL] || key_state[SC_RCTRL])   mods |= KEY_MOD_CTRL;
+        if (key_state[SC_LSHIFT] || key_state[SC_RSHIFT]) mods |= KEY_MOD_SHIFT;
+        if (key_state[SC_LALT] || key_state[SC_RALT])     mods |= KEY_MOD_ALT;
+
         input_event_t ev;
-        ev.type = EVENT_MOUSE_MOVE;
-        ev.key = 0;
+        ev.key = mods;
         ev.mouse_x = (int16_t)mouse_x_val;
         ev.mouse_y = (int16_t)mouse_y_val;
         ev.mouse_btn = mouse_buttons_val;
-        input_push(&ev);
+
+        /* Always push move event if mouse moved */
+        if (dx != 0 || dy != 0) {
+            ev.type = EVENT_MOUSE_MOVE;
+            input_push(&ev);
+        }
+
+        /* Push button down/up events on state changes */
+        for (int b = 0; b < 3; b++) {
+            uint8_t mask = (uint8_t)(1 << b);
+            if ((mouse_buttons_val & mask) && !(old_buttons & mask)) {
+                ev.type = EVENT_MOUSE_DOWN;
+                ev.mouse_btn = (uint8_t)(b + 1);
+                input_push(&ev);
+            } else if (!(mouse_buttons_val & mask) && (old_buttons & mask)) {
+                ev.type = EVENT_MOUSE_UP;
+                ev.mouse_btn = (uint8_t)(b + 1);
+                input_push(&ev);
+            }
+        }
     }
 }
 
 /* ── Public API ────────────────────────────────────── */
 
 init_result_t mouse_init(void) {
+    /* Flush any pending data in the PS/2 controller */
+    while (inb(0x64) & 0x01) inb(0x60);
+
     /* Enable auxiliary device */
     mouse_wait_write();
     outb(0x64, 0xA8);
@@ -113,6 +158,16 @@ init_result_t mouse_init(void) {
     mouse_wait_write();
     outb(0x60, status);
 
+    /* Reset mouse — required by some PS/2 controllers / QEMU */
+    mouse_cmd(0xFF);
+    mouse_wait_read_slow();
+    (void)inb(0x60);  /* ACK (0xFA) */
+    mouse_wait_read_slow();
+    uint8_t selftest = inb(0x60);  /* Self-test result (0xAA) */
+    mouse_wait_read_slow();
+    uint8_t mouseid = inb(0x60);  /* Mouse ID (0x00) */
+    serial_printf("[mouse] reset: selftest=0x%02x id=0x%02x\n", selftest, mouseid);
+
     /* Send defaults */
     mouse_cmd(0xF6);
     mouse_read_data();  /* ACK */
@@ -120,6 +175,11 @@ init_result_t mouse_init(void) {
     /* Enable data reporting */
     mouse_cmd(0xF4);
     mouse_read_data();  /* ACK */
+
+    /* Flush any data generated during init */
+    while (inb(0x64) & 0x01) inb(0x60);
+    mouse_byte = 0;
+    serial_printf("[mouse] init complete\n");
 
     /* Register IRQ handler */
     irq_register_handler(12, mouse_handler);

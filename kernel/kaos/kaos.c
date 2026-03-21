@@ -171,6 +171,8 @@ int kaos_unload(int index) {
 
 /* ── Auto-load ────────────────────────────────────── */
 
+extern void boot_splash_module(const char *name, int loaded, int total);
+
 void kaos_load_all(const char* directory) {
     int dh = chaos_opendir(directory);
     if (dh < 0) {
@@ -178,12 +180,31 @@ void kaos_load_all(const char* directory) {
         return;
     }
 
+    /* First pass: count .kaos files (skip synthetic test modules) */
     struct chaos_dirent de;
     char full_path[128];
+    int total = 0;
 
     while (chaos_readdir(dh, &de) == 0) {
         if (de.inode == 0) continue;
         if (!str_endswith(de.name, ".kaos")) continue;
+        /* Skip known bad test modules */
+        if (strcmp(de.name, "corrupt.kaos") == 0) continue;
+        if (strcmp(de.name, "bad_abi.kaos") == 0) continue;
+        total++;
+    }
+    chaos_closedir(dh);
+
+    /* Second pass: load modules with boot splash callback */
+    dh = chaos_opendir(directory);
+    if (dh < 0) return;
+
+    int loaded = 0;
+    while (chaos_readdir(dh, &de) == 0) {
+        if (de.inode == 0) continue;
+        if (!str_endswith(de.name, ".kaos")) continue;
+        if (strcmp(de.name, "corrupt.kaos") == 0) continue;
+        if (strcmp(de.name, "bad_abi.kaos") == 0) continue;
 
         /* Build full path */
         strncpy(full_path, directory, sizeof(full_path) - 1);
@@ -199,7 +220,19 @@ void kaos_load_all(const char* directory) {
         }
         strncpy(full_path + dlen, de.name, sizeof(full_path) - dlen - 1);
 
-        kaos_load(full_path);
+        int rc = kaos_load(full_path);
+        loaded++;
+
+        /* Extract module name from filename for splash (strip .kaos) */
+        char mod_name[64];
+        strncpy(mod_name, de.name, sizeof(mod_name) - 1);
+        mod_name[sizeof(mod_name) - 1] = '\0';
+        uint32_t nlen = strlen(mod_name);
+        if (nlen > 5 && strcmp(mod_name + nlen - 5, ".kaos") == 0) {
+            mod_name[nlen - 5] = '\0';
+        }
+        boot_splash_module(mod_name, loaded, total);
+        (void)rc;
     }
 
     chaos_closedir(dh);

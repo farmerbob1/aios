@@ -70,6 +70,10 @@ C_SOURCES = \
     $(KERNDIR)/chaos/chaos_dir.c \
     $(KERNDIR)/chaos/chaos.c \
     $(KERNDIR)/chaos/chaos_fsck.c \
+    $(KERNDIR)/phase1_tests.c \
+    $(KERNDIR)/phase2_tests.c \
+    $(KERNDIR)/phase3_tests.c \
+    $(KERNDIR)/phase4_tests.c \
     $(KERNDIR)/phase5_tests.c \
     $(INCDIR)/string.c
 

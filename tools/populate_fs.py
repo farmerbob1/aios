@@ -608,7 +608,7 @@ def main():
           f"{writer.blocks_allocated} blocks, {writer.inodes_allocated} inodes)")
 
 
-def _copy_directory_tree(writer, host_dir, parent_ino):
+def _copy_directory_tree(writer, host_dir, parent_ino, fs_path=""):
     """Recursively copy a host directory into ChaosFS."""
     entries = sorted(os.listdir(host_dir))
     for entry in entries:
@@ -616,15 +616,16 @@ def _copy_directory_tree(writer, host_dir, parent_ino):
         if entry.startswith('.'):
             continue  # skip hidden files
 
+        entry_fs_path = f"{fs_path}/{entry}"
         if os.path.isdir(host_path):
             dir_ino = writer.create_directory(parent_ino, entry)
-            print(f"populate_fs: created dir /{entry}/")
-            _copy_directory_tree(writer, host_path, dir_ino)
+            print(f"populate_fs: created dir {entry_fs_path}/")
+            _copy_directory_tree(writer, host_path, dir_ino, entry_fs_path)
         elif os.path.isfile(host_path):
             with open(host_path, 'rb') as f:
                 data = f.read()
             writer.create_file(parent_ino, entry, data)
-            print(f"populate_fs: wrote {entry} ({len(data)} bytes)")
+            print(f"populate_fs: wrote {entry_fs_path} ({len(data)} bytes)")
 
 
 if __name__ == '__main__':

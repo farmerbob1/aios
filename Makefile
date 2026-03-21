@@ -34,6 +34,23 @@ MODULE_CFLAGS = -ffreestanding -nostdlib -fno-builtin -Wall -Wextra -Werror \
                 -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 \
                 -Iinclude -c
 
+# Lua vendor source — compiled with kernel CFLAGS + libc shims
+# -Iinclude/libc FIRST so our shim headers shadow the compiler's builtins
+# -Wno-* flags suppress warnings in Lua's intentional style patterns
+LUADIR = vendor/lua-5.5.0/src
+# Vendor Lua: suppress ALL warnings — this is unmodified third-party code
+LUA_CFLAGS = -ffreestanding -nostdlib -fno-builtin \
+             -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 \
+             -D__AIOS_KERNEL__ -Iinclude/libc -I$(LUADIR) -Ikernel/lua -I. -w
+
+# Lua kernel integration — same as kernel CFLAGS + Lua headers
+LUA_KERN_CFLAGS = $(CFLAGS) -Iinclude/libc -I$(LUADIR) -Ikernel/lua \
+                  -Wno-unused-parameter
+
+# Lua math shim — SSE2 enabled for hardware sqrt and fast float ops
+LUA_MATH_CFLAGS = $(RENDERER_CFLAGS) -Iinclude/libc -I$(LUADIR) -Ikernel/lua \
+                  -Wno-unused-parameter -Wno-unused-variable
+
 # Assembler flags
 NASMFLAGS_BIN = -f bin
 NASMFLAGS_ELF = -f elf32 -g
@@ -82,6 +99,8 @@ C_SOURCES = \
     $(KERNDIR)/phase4_tests.c \
     $(KERNDIR)/phase5_tests.c \
     $(KERNDIR)/phase6_tests.c \
+    $(KERNDIR)/phase7_tests.c \
+    $(KERNDIR)/phase8_tests.c \
     $(KERNDIR)/kaos/kaos.c \
     $(KERNDIR)/kaos/kaos_loader.c \
     $(KERNDIR)/kaos/kaos_sym.c \
@@ -108,11 +127,41 @@ ASM_SOURCES = \
     $(KERNDIR)/irq_stubs.asm \
     $(KERNDIR)/scheduler_asm.asm
 
-# Object files
+# ===== Lua sources =====
+
+# Lua vendor — exclude lua.c (standalone interpreter) and luac.c (compiler CLI)
+LUA_VENDOR_SOURCES = $(filter-out $(LUADIR)/lua.c $(LUADIR)/luac.c, \
+                     $(wildcard $(LUADIR)/l*.c))
+
+# Lua kernel integration sources
+LUA_KERNEL_SOURCES = \
+    $(KERNDIR)/lua/lua_shim.c \
+    $(KERNDIR)/lua/lua_init.c \
+    $(KERNDIR)/lua/lua_state.c \
+    $(KERNDIR)/lua/lua_task.c \
+    $(KERNDIR)/lua/lua_kaos.c \
+    $(KERNDIR)/lua/lua_loader.c \
+    $(KERNDIR)/lua/lua_aios_io.c \
+    $(KERNDIR)/lua/lua_aios_os.c \
+    $(KERNDIR)/lua/lua_aios_input.c \
+    $(KERNDIR)/lua/lua_aios_task.c \
+    $(KERNDIR)/lua/lua_aios_debug.c \
+    $(KERNDIR)/lua/lua_chaosgl.c
+
+# ===== Object files =====
 C_OBJECTS        = $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SOURCES))
 RENDERER_OBJECTS = $(patsubst %.c,$(BUILDDIR)/%.o,$(RENDERER_SOURCES))
 ASM_OBJECTS      = $(patsubst %.asm,$(BUILDDIR)/%.o,$(ASM_SOURCES))
-ALL_OBJECTS      = $(C_OBJECTS) $(RENDERER_OBJECTS) $(ASM_OBJECTS)
+
+# Lua objects
+LUA_VENDOR_OBJECTS  = $(patsubst $(LUADIR)/%.c,$(BUILDDIR)/$(LUADIR)/%.o,$(LUA_VENDOR_SOURCES))
+LUA_KERNEL_OBJECTS  = $(patsubst $(KERNDIR)/lua/%.c,$(BUILDDIR)/$(KERNDIR)/lua/%.o,$(LUA_KERNEL_SOURCES))
+LUA_MATH_OBJECT     = $(BUILDDIR)/$(KERNDIR)/lua/lua_math_shim.o
+LUA_ASM_OBJECT      = $(BUILDDIR)/$(KERNDIR)/lua/lua_setjmp.o
+
+ALL_OBJECTS = $(C_OBJECTS) $(RENDERER_OBJECTS) $(ASM_OBJECTS) \
+              $(LUA_VENDOR_OBJECTS) $(LUA_KERNEL_OBJECTS) \
+              $(LUA_MATH_OBJECT) $(LUA_ASM_OBJECT)
 
 # Module .kaos files (compiled from modules/*.c)
 MODULE_SOURCES = $(wildcard $(MODDIR)/*.c)
@@ -147,6 +196,40 @@ stage2_check: $(BUILDDIR)/stage2.bin
 $(BUILDDIR)/$(MODDIR)/%.kaos: $(MODDIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(MODULE_CFLAGS) -o $@ $<
+
+# ===== Lua compilation rules (must be before generic rules) =====
+
+# Lua vendor source -> object (specific CFLAGS for Lua source)
+$(BUILDDIR)/$(LUADIR)/%.o: $(LUADIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LUA_CFLAGS) -c $< -o $@
+
+# Lua math shim -> object (SSE2 enabled)
+$(LUA_MATH_OBJECT): $(KERNDIR)/lua/lua_math_shim.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LUA_MATH_CFLAGS) -c $< -o $@
+
+# Lua kernel integration -> object
+$(BUILDDIR)/$(KERNDIR)/lua/%.o: $(KERNDIR)/lua/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LUA_KERN_CFLAGS) -c $< -o $@
+
+# Lua setjmp assembly -> object
+$(LUA_ASM_OBJECT): $(KERNDIR)/lua/lua_setjmp.asm
+	@mkdir -p $(dir $@)
+	$(AS) $(NASMFLAGS_ELF) $< -o $@
+
+# Phase 7 tests need Lua headers
+$(BUILDDIR)/$(KERNDIR)/phase7_tests.o: $(KERNDIR)/phase7_tests.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LUA_KERN_CFLAGS) -c $< -o $@
+
+# Phase 8 tests need Lua headers
+$(BUILDDIR)/$(KERNDIR)/phase8_tests.o: $(KERNDIR)/phase8_tests.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LUA_KERN_CFLAGS) -c $< -o $@
+
+# ===== Generic compilation rules =====
 
 # Renderer source -> object (SSE2 enabled, must be before generic rule)
 $(BUILDDIR)/$(RENDDIR)/%.o: $(RENDDIR)/%.c

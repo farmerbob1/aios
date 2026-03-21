@@ -38,6 +38,8 @@
 #include "phase4_tests.h"
 #include "phase5_tests.h"
 #include "phase6_tests.h"
+#include "phase7_tests.h"
+#include "phase8_tests.h"
 
 #define CHAOS_FS_LBA_START 2048  /* 1MB offset into disk */
 
@@ -51,6 +53,8 @@ static void test_runner_main(void) {
     phase4_acceptance_tests();
     phase5_acceptance_tests();
     phase6_acceptance_tests();
+    phase7_acceptance_tests();
+    phase8_acceptance_tests();
     task_exit();
 }
 
@@ -159,6 +163,11 @@ void kernel_main(struct boot_info* info) {
     /* ── Phase 6: KAOS ──────────────────────────────── */
     r = kaos_init();
     boot_log("KAOS module system", r);
+
+    /* ── Phase 7: Lua Runtime ──────────────────────────── */
+    extern init_result_t lua_init(void);
+    r = lua_init();
+    boot_log("Lua 5.5 runtime", r);
 
     /* Create test runner task before enabling interrupts */
     int test_id = task_create("test_runner", test_runner_main, PRIORITY_HIGH);

@@ -536,6 +536,290 @@ def make_bad_abi_kaos():
     return bytes(elf)
 
 # ═══════════════════════════════════════════════════════════════════════
+# Icon generators (Phase 8) — programmatic RAWT pixel art
+# ═══════════════════════════════════════════════════════════════════════
+
+MAGENTA = 0x00FF00FF  # transparency key (BGRX)
+
+def _icon_raw(width, height, draw_fn):
+    """Create a RAWT-format .raw file with a draw function for pixel art."""
+    pixels = [MAGENTA] * (width * height)
+    draw_fn(pixels, width, height)
+    data = make_raw_header(width, height)
+    for p in pixels:
+        data += struct.pack('<I', p)
+    return data
+
+def _set_px(pixels, w, x, y, color):
+    if 0 <= x < w and 0 <= y < len(pixels) // w:
+        pixels[y * w + x] = color
+
+def _fill_rect(pixels, w, x0, y0, rw, rh, color):
+    for dy in range(rh):
+        for dx in range(rw):
+            _set_px(pixels, w, x0 + dx, y0 + dy, color)
+
+def _draw_rect_outline(pixels, w, x0, y0, rw, rh, color):
+    for dx in range(rw):
+        _set_px(pixels, w, x0 + dx, y0, color)
+        _set_px(pixels, w, x0 + dx, y0 + rh - 1, color)
+    for dy in range(rh):
+        _set_px(pixels, w, x0, y0 + dy, color)
+        _set_px(pixels, w, x0 + rw - 1, y0 + dy, color)
+
+def _draw_line(pixels, w, x0, y0, x1, y1, color):
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx - dy
+    while True:
+        _set_px(pixels, w, x0, y0, color)
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = 2 * err
+        if e2 > -dy:
+            err -= dy
+            x0 += sx
+        if e2 < dx:
+            err += dx
+            y0 += sy
+
+# ── Individual icon draw functions ──
+
+def _draw_folder(px, w, h):
+    yellow = 0x0000D4FF  # BGRX yellow
+    dark = 0x00009BCD
+    tab_w = w // 3
+    _fill_rect(px, w, 1, h // 5, tab_w, 2, dark)
+    _fill_rect(px, w, 1, h // 5 + 1, w - 2, h - h // 5 - 2, yellow)
+    _draw_rect_outline(px, w, 1, h // 5 + 1, w - 2, h - h // 5 - 2, dark)
+
+def _draw_file(px, w, h):
+    white = 0x00FFFFFF
+    gray = 0x00CCCCCC
+    fold = max(2, w // 4)
+    _fill_rect(px, w, 2, 1, w - 4, h - 2, white)
+    _draw_rect_outline(px, w, 2, 1, w - 4, h - 2, gray)
+    # Folded corner
+    for i in range(fold):
+        _draw_line(px, w, w - 2 - fold + i, 1, w - 2 - fold + i, 1 + i, gray)
+
+def _draw_text_file(px, w, h):
+    _draw_file(px, w, h)
+    line_c = 0x00888888
+    for i in range(3):
+        y = h // 3 + i * 3
+        if y < h - 3:
+            _fill_rect(px, w, 5, y, w - 10, 1, line_c)
+
+def _draw_lua(px, w, h):
+    blue = 0x00FF4400  # BGRX blue-ish
+    cx, cy = w // 2, h // 2
+    r = min(w, h) // 2 - 1
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if dx * dx + dy * dy <= r * r:
+                _set_px(px, w, cx + dx, cy + dy, blue)
+    # Moon cutout (crescent)
+    cr = r * 2 // 3
+    ox = r // 2
+    for dy in range(-cr, cr + 1):
+        for dx in range(-cr, cr + 1):
+            if dx * dx + dy * dy <= cr * cr:
+                _set_px(px, w, cx + ox + dx, cy + dy - 1, MAGENTA)
+
+def _draw_image(px, w, h):
+    sky = 0x00FFCC88  # light blue BGRX
+    green = 0x0044AA44
+    sun = 0x0000DDFF
+    _fill_rect(px, w, 1, 1, w - 2, h - 2, sky)
+    _draw_rect_outline(px, w, 1, 1, w - 2, h - 2, 0x00888888)
+    # Mountain
+    peak_x, peak_y = w // 3, h // 3
+    for y_off in range(h - 3 - peak_y):
+        lx = max(1, peak_x - y_off)
+        rx = min(w - 2, peak_x + y_off)
+        _fill_rect(px, w, lx, peak_y + y_off, rx - lx + 1, 1, green)
+    # Sun
+    sr = max(2, w // 8)
+    sx, sy = w * 3 // 4, h // 4
+    for dy in range(-sr, sr + 1):
+        for dx in range(-sr, sr + 1):
+            if dx * dx + dy * dy <= sr * sr:
+                _set_px(px, w, sx + dx, sy + dy, sun)
+
+def _draw_audio(px, w, h):
+    note_c = 0x00FFFFFF
+    # Note head (oval)
+    cx, cy = w // 3, h * 2 // 3
+    for dy in range(-2, 3):
+        for dx in range(-3, 4):
+            if dx * dx * 4 + dy * dy * 9 <= 36:
+                _set_px(px, w, cx + dx, cy + dy, note_c)
+    # Stem
+    _fill_rect(px, w, cx + 3, h // 4, 1, cy - h // 4, note_c)
+    # Flag
+    _draw_line(px, w, cx + 3, h // 4, cx + 7, h // 4 + 4, note_c)
+
+def _draw_binary(px, w, h):
+    fg = 0x0044FF44  # green
+    text = "01"
+    cw = max(1, w // 8)
+    for row in range(min(3, h // (cw + 1))):
+        for col in range(min(4, w // (cw + 1))):
+            c = text[(row + col) % 2]
+            x = 1 + col * (cw + 1)
+            y = 1 + row * (cw + 2)
+            if c == '1':
+                _fill_rect(px, w, x, y, cw, cw, fg)
+            else:
+                _draw_rect_outline(px, w, x, y, cw, cw, fg)
+
+def _draw_cobj(px, w, h):
+    c = 0x0088CCFF  # light orange
+    m = w // 2
+    s = w // 3
+    # Simple cube wireframe
+    _draw_line(px, w, m - s, m - s // 2, m + s // 2, m - s, c)
+    _draw_line(px, w, m + s // 2, m - s, m + s, m - s // 2, c)
+    _draw_line(px, w, m - s, m - s // 2, m - s, m + s // 2, c)
+    _draw_line(px, w, m - s, m + s // 2, m + s // 2, m + s, c)
+    _draw_line(px, w, m + s // 2, m + s, m + s, m + s // 2, c)
+    _draw_line(px, w, m + s, m - s // 2, m + s, m + s // 2, c)
+    _draw_line(px, w, m + s // 2, m - s, m + s // 2, m + s, c)
+
+def _draw_raw_tex(px, w, h):
+    c1 = 0x00FF8800
+    c2 = 0x00884400
+    cs = max(2, w // 4)
+    for y in range(h):
+        for x in range(w):
+            if ((x // cs) + (y // cs)) % 2 == 0:
+                _set_px(px, w, x, y, c1)
+            else:
+                _set_px(px, w, x, y, c2)
+
+def _draw_shell(px, w, h):
+    bg = 0x00333333
+    fg = 0x0044FF44
+    _fill_rect(px, w, 1, 1, w - 2, h - 2, bg)
+    _draw_rect_outline(px, w, 0, 0, w, h, 0x00666666)
+    # ">_" prompt
+    _draw_line(px, w, w // 5, h // 3, w // 3, h // 2, fg)
+    _draw_line(px, w, w // 5, h * 2 // 3, w // 3, h // 2, fg)
+    _fill_rect(px, w, w // 3 + 2, h * 2 // 3, w // 3, max(1, h // 16), fg)
+
+def _draw_files_icon(px, w, h):
+    _draw_folder(px, w, h)
+    # Small magnifying glass overlay
+    lens_c = 0x00FFFFFF
+    cx, cy = w * 2 // 3, h * 2 // 3
+    r = max(2, w // 6)
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            d2 = dx * dx + dy * dy
+            if d2 <= r * r and d2 >= (r - 1) * (r - 1):
+                _set_px(px, w, cx + dx, cy + dy, lens_c)
+    _draw_line(px, w, cx + r, cy + r, cx + r + 2, cy + r + 2, lens_c)
+
+def _draw_settings(px, w, h):
+    gray = 0x00AAAAAA
+    cx, cy = w // 2, h // 2
+    r_outer = min(w, h) // 2 - 1
+    r_inner = r_outer * 2 // 3
+    r_hole = r_outer // 3
+    for dy in range(-r_outer, r_outer + 1):
+        for dx in range(-r_outer, r_outer + 1):
+            d2 = dx * dx + dy * dy
+            if d2 <= r_outer * r_outer and d2 >= r_inner * r_inner:
+                _set_px(px, w, cx + dx, cy + dy, gray)
+            elif d2 <= r_hole * r_hole:
+                _set_px(px, w, cx + dx, cy + dy, gray)
+    # Gear teeth (4 cardinal + 4 diagonal)
+    tooth = max(2, r_outer // 3)
+    for ang in range(0, 360, 45):
+        rad = ang * 3.14159 / 180
+        tx = int(cx + (r_inner + tooth // 2) * math.cos(rad))
+        ty = int(cy + (r_inner + tooth // 2) * math.sin(rad))
+        _fill_rect(px, w, tx - 1, ty - 1, 3, 3, gray)
+
+def _draw_claude(px, w, h):
+    orange = 0x00FF8800  # BGRX accent
+    cx, cy = w // 2, h // 2
+    # Star / spark shape
+    r = min(w, h) // 2 - 2
+    for i in range(4):
+        ang = i * 3.14159 / 2
+        for t in range(r):
+            x = int(cx + t * math.cos(ang))
+            y = int(cy + t * math.sin(ang))
+            _set_px(px, w, x, y, orange)
+            if t > 0:
+                # Perpendicular width
+                px2 = int(cx + t * math.cos(ang) + math.sin(ang))
+                py2 = int(cy + t * math.sin(ang) - math.cos(ang))
+                _set_px(px, w, px2, py2, orange)
+
+def _draw_close(px, w, h):
+    c = 0x00FFFFFF
+    _draw_line(px, w, 3, 3, w - 4, h - 4, c)
+    _draw_line(px, w, w - 4, 3, 3, h - 4, c)
+
+def _draw_minimize(px, w, h):
+    c = 0x00FFFFFF
+    _fill_rect(px, w, 3, h // 2, w - 6, 2, c)
+
+def _draw_maximize(px, w, h):
+    c = 0x00FFFFFF
+    _draw_rect_outline(px, w, 3, 3, w - 6, h - 6, c)
+
+def _draw_missing(px, w, h):
+    magenta_solid = 0x00FF00FF
+    fg = 0x00FFFFFF
+    _fill_rect(px, w, 0, 0, w, h, magenta_solid)
+    # Draw "?" character
+    cx = w // 2
+    _fill_rect(px, w, cx - 2, 2, 4, 2, fg)
+    _fill_rect(px, w, cx + 1, 4, 2, 2, fg)
+    _fill_rect(px, w, cx, 6, 2, 2, fg)
+    _fill_rect(px, w, cx, h - 5, 2, 2, fg)
+
+
+def gen_all_icons():
+    """Generate all icon .raw files. Returns list of (path, data) tuples."""
+    icons = []
+
+    icon_defs = [
+        ("folder",   [16, 32, 48], _draw_folder),
+        ("file",     [16, 32, 48], _draw_file),
+        ("text",     [16, 32],     _draw_text_file),
+        ("lua",      [16, 32],     _draw_lua),
+        ("image",    [16, 32],     _draw_image),
+        ("audio",    [16, 32],     _draw_audio),
+        ("binary",   [16, 32],     _draw_binary),
+        ("cobj",     [32],         _draw_cobj),
+        ("raw",      [32],         _draw_raw_tex),
+        ("shell",    [32, 48],     _draw_shell),
+        ("files",    [32, 48],     _draw_files_icon),
+        ("settings", [32, 48],     _draw_settings),
+        ("claude",   [32, 48],     _draw_claude),
+        ("close",    [16],         _draw_close),
+        ("minimize", [16],         _draw_minimize),
+        ("maximize", [16],         _draw_maximize),
+        ("missing",  [16, 32],     _draw_missing),
+    ]
+
+    for name, sizes, draw_fn in icon_defs:
+        for sz in sizes:
+            data = _icon_raw(sz, sz, draw_fn)
+            path = f"{name}_{sz}.raw"
+            icons.append((path, data))
+
+    return icons
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Main: format + populate
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -594,6 +878,13 @@ def main():
                     data = mf.read()
                 writer.create_file(modules_ino, fn, data)
                 print(f"populate_fs: wrote /system/modules/{fn} ({len(data)} bytes)")
+
+        # ── Step 5b: Generate icons (/system/icons/) ─────
+        icons_ino = writer.ensure_directory("/system/icons")
+        icon_files = gen_all_icons()
+        for name, data in icon_files:
+            writer.create_file(icons_ino, name, data)
+        print(f"populate_fs: wrote {len(icon_files)} icon files to /system/icons/")
 
         # Synthetic test modules
         for name, gen_fn in [("corrupt.kaos", make_corrupt_kaos), ("bad_abi.kaos", make_bad_abi_kaos)]:

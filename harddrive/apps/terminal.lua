@@ -1,13 +1,7 @@
--- @app name="Terminal" icon="/system/icons/shell_48.raw"
+-- @app name="Terminal" icon="/system/icons/terminal_32.png"
 -- AIOS v2 — Terminal / Lua REPL
-
-local surface = chaos_gl.surface_create(520, 380, false)
-chaos_gl.surface_set_position(surface, 120, 80)
-chaos_gl.surface_set_visible(surface, true)
-aios.wm.register(surface, {
-    title = "Terminal",
-    task_id = aios.task.self().id,
-})
+local AppWindow = require("appwindow")
+local win = AppWindow.new("Terminal", 520, 380, {x=120, y=80})
 
 local lines = {}
 local input_line = ""
@@ -225,32 +219,27 @@ end
 local blink_timer = 0
 local cursor_visible = true
 
-local running = true
-while running do
+while win:is_running() do
     blink_timer = blink_timer + 1
     if blink_timer >= 30 then  -- toggle every ~500ms (30 frames at 60fps)
         cursor_visible = not cursor_visible
         blink_timer = 0
     end
-    chaos_gl.surface_bind(surface)
-    local bg = 0x001A1A2E
-    local text_c = 0x00CCCCCC
-    local prompt_c = 0x0044FF44
-    local titlebar_bg = theme and theme.titlebar_bg or 0x003C3C3C
-    local title_c = theme and theme.titlebar_text or 0x00FFFFFF
-    chaos_gl.surface_clear(surface, bg)
 
-    -- Title bar
-    chaos_gl.rect(0, 0, 520, 28, titlebar_bg)
-    chaos_gl.text(8, 6, "Terminal [" .. cwd .. "]", title_c, 0, 0)
-    chaos_gl.rect(520 - 28, 0, 28, 28, 0x00FF4444)
-    chaos_gl.text(520 - 20, 6, "X", 0x00FFFFFF, 0, 0)
+    win.title = "Terminal [" .. cwd .. "]"
+    win:begin_frame()
+
+    local bg = 0x001A1A2E
+    local prompt_c = 0x0044FF44
 
     -- Output area
     local output_y = 30
     local output_h = 380 - 28 - 24
     local line_h = chaos_gl.font_height(-1)
     local max_visible = output_h // line_h
+
+    -- Draw terminal background over content area
+    chaos_gl.rect(0, output_y, 520, output_h, bg)
 
     chaos_gl.push_clip(0, output_y, 520, output_h)
     local start_line = math.max(1, #lines - max_visible - scroll_y + 1)
@@ -288,17 +277,14 @@ while running do
         chaos_gl.rect(cursor_x, input_y + 2, 2, 16, 0x00FFFFFF)
     end
 
-    chaos_gl.surface_present(surface)
+    win:end_frame()
 
     -- Events
-    local event = aios.wm.poll_event(surface)
-    while event do
+    for _, event in ipairs(win:poll_events()) do
         if event.type == EVENT_KEY_DOWN then
             cursor_visible = true
             blink_timer = 0
-            if event.key == 1 then -- Escape
-                running = false
-            elseif event.key == 28 then -- Enter
+            if event.key == 28 then -- Enter
                 execute(input_line)
                 input_line = ""
                 cursor_pos = 0
@@ -346,18 +332,12 @@ while running do
                              input_line:sub(cursor_pos + 1)
                 cursor_pos = cursor_pos + 1
             end
-        elseif event.type == EVENT_MOUSE_DOWN and event.button == 1 then
-            if event.mouse_x >= 520 - 28 and event.mouse_y < 28 then
-                running = false
-            end
         elseif event.type == EVENT_MOUSE_WHEEL then
             scroll_y = math.max(0, scroll_y + (event.wheel or 0) * -3)
         end
-        event = aios.wm.poll_event(surface)
     end
 
     aios.os.sleep(16)
 end
 
-aios.wm.unregister(surface)
-chaos_gl.surface_destroy(surface)
+win:destroy()

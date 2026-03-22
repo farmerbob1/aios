@@ -1,16 +1,11 @@
--- @app name="Files" icon="/system/icons/files_48.raw"
+-- @app name="Files" icon="/system/icons/files_32.png"
 -- AIOS v2 — File Browser Application
 
 local filetypes = require("filetypes")
+local AppWindow = require("appwindow")
 
 local W, H = 560, 420
-local surface = chaos_gl.surface_create(W, H, false)
-chaos_gl.surface_set_position(surface, 80, 60)
-chaos_gl.surface_set_visible(surface, true)
-aios.wm.register(surface, {
-    title = "Files",
-    task_id = aios.task.self().id,
-})
+local win = AppWindow.new("Files", W, H, {x=80, y=60})
 
 local current_path = "/"
 local entries = {}
@@ -29,7 +24,7 @@ local last_click_idx = 0
 local DOUBLE_CLICK_MS = 400
 
 -- Layout constants
-local TITLEBAR_H = 28
+local TITLEBAR_H = AppWindow.TITLEBAR_H
 local TOOLBAR_H = 28
 local PATHBAR_H = 20
 local HEADER_H = 22
@@ -140,23 +135,13 @@ local function open_entry(entry)
 end
 
 local function get_surface_w()
-    local sw, _ = chaos_gl.surface_get_size(surface)
+    local sw, _ = chaos_gl.surface_get_size(win.surface)
     return sw
 end
 
 refresh()
 
--- ── Drawing ───────────────────────────────────────
-
-local function draw_titlebar(sw)
-    local titlebar_bg = theme and theme.titlebar_bg or 0x003C3C3C
-    local text_c = theme and theme.text_primary or 0x00FFFFFF
-    chaos_gl.rect(0, 0, sw, TITLEBAR_H, titlebar_bg)
-    chaos_gl.text(8, 6, "Files - " .. current_path, text_c, 0, 0)
-    -- Close button
-    chaos_gl.rect(sw - 28, 0, 28, TITLEBAR_H, 0x00FF4444)
-    chaos_gl.text(sw - 20, 6, "X", 0x00FFFFFF, 0, 0)
-end
+-- -- Drawing ---------------------------------------------------
 
 local function draw_toolbar(sw)
     local text_c = theme and theme.text_primary or 0x00FFFFFF
@@ -297,16 +282,14 @@ local function draw_grid_view(sw, sh)
     chaos_gl.pop_clip()
 end
 
--- ── Main loop ─────────────────────────────────────
+-- -- Main loop -------------------------------------------------
 
-local running = true
-while running do
-    local sw, sh = chaos_gl.surface_get_size(surface)
-    chaos_gl.surface_bind(surface)
-    local bg = theme and theme.window_bg or 0x002D2D2D
-    chaos_gl.surface_clear(surface, bg)
+while win:is_running() do
+    local sw, sh = win:get_size()
 
-    draw_titlebar(sw)
+    win.title = "Files - " .. current_path
+    win:begin_frame()
+
     draw_toolbar(sw)
     draw_pathbar(sw)
 
@@ -316,20 +299,15 @@ while running do
         draw_grid_view(sw, sh)
     end
 
-    chaos_gl.surface_present(surface)
+    win:end_frame()
 
     -- Process events
-    local event = aios.wm.poll_event(surface)
-    while event do
+    for _, event in ipairs(win:poll_events()) do
         if event.type == EVENT_MOUSE_DOWN and event.button == 1 then
             local mx, my = event.mouse_x, event.mouse_y
 
-            -- Close button
-            if mx >= sw - 28 and my < TITLEBAR_H then
-                running = false
-
             -- Toolbar
-            elseif my >= TITLEBAR_H and my < TITLEBAR_H + TOOLBAR_H then
+            if my >= TITLEBAR_H and my < TITLEBAR_H + TOOLBAR_H then
                 local bx = 4
                 local btns = {"Back", "Up"}
                 for _, label in ipairs(btns) do
@@ -395,17 +373,13 @@ while running do
             end
 
         elseif event.type == EVENT_KEY_DOWN then
-            if event.key == 1 then
-                running = false
-            elseif event.key == 28 and selected > 0 then -- Enter
+            if event.key == 28 and selected > 0 then -- Enter
                 open_entry(entries[selected])
             end
         end
-        event = aios.wm.poll_event(surface)
     end
 
     aios.os.sleep(32)
 end
 
-aios.wm.unregister(surface)
-chaos_gl.surface_destroy(surface)
+win:destroy()

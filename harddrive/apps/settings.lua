@@ -1,32 +1,18 @@
--- @app name="Settings" icon="/system/icons/settings_48.raw"
+-- @app name="Settings" icon="/system/icons/settings_32.png"
 -- AIOS v2 — Settings Application
-
-local surface = chaos_gl.surface_create(450, 350, false)
-chaos_gl.surface_set_position(surface, 150, 100)
-chaos_gl.surface_set_visible(surface, true)
-aios.wm.register(surface, {
-    title = "Settings",
-    task_id = aios.task.self().id,
-})
+local AppWindow = require("appwindow")
+local win = AppWindow.new("Settings", 450, 350, {x=150, y=100})
 
 local active_tab = 1
 local tabs = {"Appearance", "System", "Modules"}
 
-local running = true
-while running do
-    chaos_gl.surface_bind(surface)
-    local bg = theme and theme.window_bg or 0x002D2D2D
-    local text_c = theme and theme.text_primary or 0x00FFFFFF
-    local sec_c = theme and theme.text_secondary or 0x00AAAAAA
-    local accent = theme and theme.accent or 0x00FF8800
-    local titlebar_bg = theme and theme.titlebar_bg or 0x003C3C3C
-    chaos_gl.surface_clear(surface, bg)
+while win:is_running() do
+    win:begin_frame()
 
-    -- Title bar
-    chaos_gl.rect(0, 0, 450, 28, titlebar_bg)
-    chaos_gl.text(8, 6, "Settings", text_c, 0, 0)
-    chaos_gl.rect(450 - 28, 0, 28, 28, 0x00FF4444)
-    chaos_gl.text(450 - 20, 6, "X", 0x00FFFFFF, 0, 0)
+    local bg = win:color("window_bg", 0x002D2D2D)
+    local text_c = win:color("text_primary", 0x00FFFFFF)
+    local sec_c = win:color("text_secondary", 0x00AAAAAA)
+    local accent = win:color("accent", 0x00FF8800)
 
     -- Tab bar
     local tab_x = 0
@@ -122,19 +108,15 @@ while running do
         end
     end
 
-    chaos_gl.surface_present(surface)
+    win:end_frame()
 
     -- Events
-    local event = aios.wm.poll_event(surface)
-    while event do
+    for _, event in ipairs(win:poll_events()) do
         if event.type == EVENT_MOUSE_DOWN and event.button == 1 then
             local mx, my = event.mouse_x, event.mouse_y
 
-            -- Close button
-            if mx >= 450 - 28 and my < 28 then
-                running = false
             -- Tab clicks
-            elseif my >= 28 and my < 60 then
+            if my >= 28 and my < 60 then
                 local tx = 0
                 for i, label in ipairs(tabs) do
                     local tw = chaos_gl.text_width(label) + 24
@@ -156,14 +138,10 @@ while running do
                     end
                 end
             end
-        elseif event.type == EVENT_KEY_DOWN then
-            if event.key == 1 then running = false end
         end
-        event = aios.wm.poll_event(surface)
     end
 
     aios.os.sleep(100)
 end
 
-aios.wm.unregister(surface)
-chaos_gl.surface_destroy(surface)
+win:destroy()

@@ -1,13 +1,8 @@
--- @app name="Editor" icon="/system/icons/text_32.raw"
+-- @app name="Editor" icon="/system/icons/edit_32.png"
 -- AIOS v2 — Text Editor
+local AppWindow = require("appwindow")
 
-local surface = chaos_gl.surface_create(560, 420, false)
-chaos_gl.surface_set_position(surface, 100, 50)
-chaos_gl.surface_set_visible(surface, true)
-aios.wm.register(surface, {
-    title = "Editor",
-    task_id = aios.task.self().id,
-})
+local win = AppWindow.new("Editor", 560, 420, {x=100, y=50})
 
 -- Get file path from args if available
 local file_path = nil
@@ -61,25 +56,19 @@ if file_path then
     load_file(file_path)
 end
 
-local running = true
-while running do
-    chaos_gl.surface_bind(surface)
+while win:is_running() do
+    -- Update title dynamically
+    local title = "Editor"
+    if file_path then title = title .. " - " .. file_path end
+    if modified then title = title .. " *" end
+    win.title = title
+
+    win:begin_frame()
+
     local bg = 0x001E1E2E
     local text_c = 0x00DDDDDD
     local line_num_c = 0x00666688
     local cursor_c = 0x00FFFFFF
-    local titlebar_bg = theme and theme.titlebar_bg or 0x003C3C3C
-    local title_c = theme and theme.titlebar_text or 0x00FFFFFF
-    chaos_gl.surface_clear(surface, bg)
-
-    -- Title bar
-    chaos_gl.rect(0, 0, 560, 28, titlebar_bg)
-    local title = "Editor"
-    if file_path then title = title .. " - " .. file_path end
-    if modified then title = title .. " *" end
-    chaos_gl.text(8, 6, title, title_c, 0, 0)
-    chaos_gl.rect(560 - 28, 0, 28, 28, 0x00FF4444)
-    chaos_gl.text(560 - 20, 6, "X", 0x00FFFFFF, 0, 0)
 
     -- Editor area
     local edit_y = 28
@@ -131,18 +120,15 @@ while running do
     -- Ctrl+S hint
     chaos_gl.text(560 - 80, status_y + 2, "Ctrl+S Save", 0x00666688, 0, 0)
 
-    chaos_gl.surface_present(surface)
+    win:end_frame()
 
     -- Events
-    local event = aios.wm.poll_event(surface)
-    while event do
+    for _, event in ipairs(win:poll_events()) do
         if event.type == EVENT_KEY_DOWN then
             local key = event.key
 
             if event.ctrl and key == 31 then -- Ctrl+S
                 save_file()
-            elseif key == 1 then -- Escape
-                running = false
             elseif key == 28 then -- Enter
                 local line = text_lines[cursor_line] or ""
                 local before = line:sub(1, cursor_col)
@@ -232,21 +218,13 @@ while running do
                 modified = true
             end
 
-        elseif event.type == EVENT_MOUSE_DOWN and event.button == 1 then
-            if event.mouse_x >= 560 - 28 and event.mouse_y < 28 then
-                running = false
-            end
-
         elseif event.type == EVENT_MOUSE_WHEEL then
             scroll_y = math.max(0, scroll_y + (event.wheel or 0) * -3)
             scroll_y = math.min(scroll_y, math.max(0, #text_lines - max_visible))
         end
-
-        event = aios.wm.poll_event(surface)
     end
 
     aios.os.sleep(16)
 end
 
-aios.wm.unregister(surface)
-chaos_gl.surface_destroy(surface)
+win:destroy()

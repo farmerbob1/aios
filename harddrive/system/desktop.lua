@@ -104,8 +104,13 @@ local function draw_desktop()
 
         if ic.tex and ic.tex >= 0 then
             local tw, th = chaos_gl.texture_get_size(ic.tex)
-            chaos_gl.blit_keyed(ic.x + (48 - tw) // 2, ic.y + (48 - th) // 2,
-                                tw, th, ic.tex, 0x00FF00FF)
+            local ox = ic.x + (48 - tw) // 2
+            local oy = ic.y + (48 - th) // 2
+            if chaos_gl.texture_has_alpha(ic.tex) then
+                chaos_gl.blit_alpha(ox, oy, tw, th, ic.tex)
+            else
+                chaos_gl.blit_keyed(ox, oy, tw, th, ic.tex, 0x00FF00FF)
+            end
         else
             chaos_gl.rect(ic.x, ic.y, 48, 48, 0x00444466)
         end
@@ -178,6 +183,8 @@ while running do
                 if event.type == EVENT_MOUSE_DOWN then
                     wm._handle_app_menu_click(event)
                     taskbar_dirty = true
+                elseif event.type == EVENT_MOUSE_MOVE then
+                    wm._handle_app_menu_hover(event)
                 end
             elseif target then
                 local translated = wm.translate_event(event, target)

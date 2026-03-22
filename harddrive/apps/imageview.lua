@@ -1,21 +1,16 @@
--- @app name="Image Viewer" icon="/system/icons/image_32.raw"
+-- @app name="Image Viewer" icon="/system/icons/image_32.png"
 -- AIOS v2 — Image Viewer
+local AppWindow = require("appwindow")
 
-local W, H = 500, 400
-local surface = chaos_gl.surface_create(W, H, false)
-chaos_gl.surface_set_position(surface, 120, 80)
-chaos_gl.surface_set_visible(surface, true)
-aios.wm.register(surface, {
-    title = "Image Viewer",
-    task_id = aios.task.self().id,
-})
+local win = AppWindow.new("Image Viewer", 500, 400, {x=150, y=80})
+local TITLEBAR_H = AppWindow.TITLEBAR_H
+local TOOLBAR_H = 28
 
 local file_path = nil
 local tex = -1
 local img_w, img_h = 0, 0
 local offset_x, offset_y = 0, 0
 local zoom = 1
-local running = true
 local status = "No image loaded"
 
 -- Get file path from args
@@ -34,17 +29,14 @@ local function load_image(path)
         file_path = path
         status = path:match("[^/]+$") .. " (" .. img_w .. "x" .. img_h .. ")"
         -- Center the image
-        local sw, sh = chaos_gl.surface_get_size(surface)
-        local content_h = sh - 28 - 28  -- titlebar + toolbar
+        local sw, sh = win:get_size()
+        local content_h = sh - TITLEBAR_H - TOOLBAR_H
         offset_x = math.max(0, (sw - img_w) // 2)
         offset_y = math.max(0, (content_h - img_h) // 2)
         zoom = 1
         -- Update window title
         local name = path:match("[^/]+$") or path
-        aios.wm.register(surface, {
-            title = "Image Viewer - " .. name,
-            task_id = aios.task.self().id,
-        })
+        win:set_title("Image Viewer - " .. name)
     else
         status = "Failed to load: " .. path
     end
@@ -54,25 +46,14 @@ if file_path then
     load_image(file_path)
 end
 
-local TITLEBAR_H = 28
-local TOOLBAR_H = 28
+while win:is_running() do
+    local sw, sh = win:get_size()
+    win:begin_frame()
+    -- Overdraw content area with dark background
+    chaos_gl.rect(0, TITLEBAR_H, sw, sh - TITLEBAR_H, 0x00181818)
 
-while running do
-    local sw, sh = chaos_gl.surface_get_size(surface)
-    chaos_gl.surface_bind(surface)
-
-    local bg = theme and theme.window_bg or 0x002D2D2D
     local text_c = theme and theme.text_primary or 0x00FFFFFF
     local sec_c = theme and theme.text_secondary or 0x00AAAAAA
-    local titlebar_bg = theme and theme.titlebar_bg or 0x003C3C3C
-
-    chaos_gl.surface_clear(surface, 0x00181818)
-
-    -- Title bar
-    chaos_gl.rect(0, 0, sw, TITLEBAR_H, titlebar_bg)
-    chaos_gl.text(8, 6, "Image Viewer", text_c, 0, 0)
-    chaos_gl.rect(sw - 28, 0, 28, TITLEBAR_H, 0x00FF4444)
-    chaos_gl.text(sw - 20, 6, "X", 0x00FFFFFF, 0, 0)
 
     -- Toolbar
     chaos_gl.rect(0, TITLEBAR_H, sw, TOOLBAR_H, 0x00353535)
@@ -129,17 +110,12 @@ while running do
     end
 
     chaos_gl.pop_clip()
-    chaos_gl.surface_present(surface)
+    win:end_frame()
 
     -- Events
-    local event = aios.wm.poll_event(surface)
-    while event do
-        if event.type == EVENT_CLOSE then
-            running = false
-        elseif event.type == EVENT_KEY_DOWN then
-            if event.key == 1 then -- ESC
-                running = false
-            elseif event.key == 78 then -- + (numpad)
+    for _, event in ipairs(win:poll_events()) do
+        if event.type == EVENT_KEY_DOWN then
+            if event.key == 78 then -- + (numpad)
                 zoom = math.min(8, zoom * 1.5)
             elseif event.key == 74 then -- - (numpad)
                 zoom = math.max(0.125, zoom / 1.5)
@@ -151,11 +127,8 @@ while running do
             end
         elseif event.type == EVENT_MOUSE_DOWN and event.button == 1 then
             local mx, my = event.mouse_x, event.mouse_y
-            -- Close button
-            if mx >= sw - 28 and my < TITLEBAR_H then
-                running = false
             -- Toolbar buttons
-            elseif my >= TITLEBAR_H and my < TITLEBAR_H + TOOLBAR_H then
+            if my >= TITLEBAR_H and my < TITLEBAR_H + TOOLBAR_H then
                 for _, b in ipairs(btns) do
                     if mx >= b.x and mx < b.x + b.w then
                         if b.label == "Zoom+" then
@@ -183,7 +156,6 @@ while running do
             -- Scroll to pan
             offset_y = offset_y + (event.wheel or 0) * 16
         end
-        event = aios.wm.poll_event(surface)
     end
 
     aios.os.sleep(32)
@@ -191,5 +163,4 @@ end
 
 -- Cleanup
 if tex >= 0 then chaos_gl.free_texture(tex) end
-aios.wm.unregister(surface)
-chaos_gl.surface_destroy(surface)
+win:destroy()

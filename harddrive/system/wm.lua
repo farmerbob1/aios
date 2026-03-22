@@ -28,6 +28,39 @@ local TITLEBAR_H = 28
 local TASKBAR_H = 36
 local RESIZE_BORDER = 6
 
+-- Traffic light button layout (must match titlebar.lua)
+local TB_BTN_RADIUS = 6
+local TB_BTN_Y_CENTER = 14
+local TB_BTN_X_START = 12
+local TB_BTN_SPACING = 20
+
+-- Per-surface titlebar hover state
+local tb_hover_state = {}  -- surface_id -> "close"/"minimize"/"maximize"/nil
+
+function wm.get_titlebar_hover(surface)
+    return tb_hover_state[surface]
+end
+
+local function update_titlebar_hover(surface, mx, my)
+    local sx, sy = chaos_gl.surface_get_position(surface)
+    local lx, ly = mx - sx, my - sy
+    local btn_cy = TB_BTN_Y_CENTER
+    local old = tb_hover_state[surface]
+    local new_hover = nil
+
+    if ly >= 0 and ly < TITLEBAR_H then
+        for i, name in ipairs({"close", "minimize", "maximize"}) do
+            local bx = TB_BTN_X_START + (i - 1) * TB_BTN_SPACING
+            if (lx - bx)^2 + (ly - btn_cy)^2 <= (TB_BTN_RADIUS + 2)^2 then
+                new_hover = name
+                break
+            end
+        end
+    end
+
+    tb_hover_state[surface] = new_hover
+end
+
 -- ── Initialization ──────────────────────────────────
 
 function wm.init()
@@ -118,10 +151,11 @@ function wm._draw_taskbar()
     local pill_x = (1024 - pill_w) // 2
     local pill_y = DOCK_H - pill_h - DOCK_MARGIN_B
 
-    -- Draw pill background
+    -- Draw pill background with border
     chaos_gl.rect_rounded(pill_x, pill_y, pill_w, pill_h, DOCK_RADIUS, dock_bg)
+    chaos_gl.rect_rounded_outline(pill_x, pill_y, pill_w, pill_h, DOCK_RADIUS, 0x00444455, 1)
     -- Subtle top highlight
-    chaos_gl.rect(pill_x + DOCK_RADIUS, pill_y, pill_w - DOCK_RADIUS * 2, 1, 0x00444450)
+    chaos_gl.rect(pill_x + DOCK_RADIUS, pill_y + 1, pill_w - DOCK_RADIUS * 2, 1, 0x00505060)
 
     -- Layout items inside pill
     local ix = pill_x + DOCK_PAD
@@ -138,15 +172,40 @@ function wm._draw_taskbar()
     for _, w in ipairs(wins) do
         local is_active = w.active
         local ibg = is_active and accent or 0x00484850
-        chaos_gl.rect_rounded(ix, iy, DOCK_ICON, DOCK_ICON, 6, ibg)
+        chaos_gl.rect_rounded(ix, iy, DOCK_ICON, DOCK_ICON, 8, ibg)
 
-        -- First letter of title
-        local title = w.title or "?"
-        local letter = title:sub(1, 1):upper()
-        local lw = chaos_gl.text_width(letter)
-        chaos_gl.text(ix + (DOCK_ICON - lw) // 2, iy + (DOCK_ICON - fh) // 2, letter, 0x00FFFFFF, 0, 0)
+        -- Try to find app icon texture
+        local app_tex = -1
+        for _, app in ipairs(app_list) do
+            if app.name == w.title and app.tex >= 0 then
+                app_tex = app.tex
+                break
+            end
+        end
 
-        -- Active dot below pill
+        if app_tex >= 0 then
+            -- Blit icon centered in dock slot
+            local tw, th = chaos_gl.texture_get_size(app_tex)
+            local ox = ix + (DOCK_ICON - tw) // 2
+            local oy = iy + (DOCK_ICON - th) // 2
+            if chaos_gl.texture_has_alpha(app_tex) then
+                chaos_gl.blit_alpha(ox, oy, tw, th, app_tex)
+            else
+                chaos_gl.blit_keyed(ox, oy, tw, th, app_tex, 0x00FF00FF)
+            end
+        else
+            -- Fallback: first letter
+            local title = w.title or "?"
+            local letter = title:sub(1, 1):upper()
+            local lw = chaos_gl.text_width(letter)
+            chaos_gl.text(ix + (DOCK_ICON - lw) // 2, iy + (DOCK_ICON - fh) // 2, letter, 0x00FFFFFF, 0, 0)
+        end
+
+        -- Active/minimized indicators
+        if w.minimized then
+            -- Dim overlay for minimized
+            chaos_gl.rect(ix, iy, DOCK_ICON, DOCK_ICON, 0x80000000)
+        end
         if is_active then
             chaos_gl.circle(ix + DOCK_ICON // 2, pill_y + pill_h + 3, 2, accent)
         end
@@ -184,44 +243,54 @@ function wm._update_stats()
 end
 
 function wm._draw_stats_widget(x, y)
-    -- Widget: 48px wide, DOCK_ICON tall, 3 mini progress bars
+    -- Widget: 48px wide, DOCK_ICON tall, 4 mini progress bars
     local w = 48
     local h = DOCK_ICON
-    local bar_h = 8
-    local gap = (h - bar_h * 3) // 4  -- evenly space 3 bars
+    local bar_h = 6
+    local gap = (h - bar_h * 4) // 5  -- evenly space 4 bars
 
     chaos_gl.rect_rounded(x, y, w, h, 6, 0x00333340)
+
+    local bw = w - 8
 
     -- FPS bar (green) — scale: 0-62fps
     local fps_pct = math.min(1.0, stats_fps / 62)
     local by = y + gap
-    chaos_gl.rect_rounded(x + 4, by, w - 8, bar_h, 2, 0x00222222)
+    chaos_gl.rect(x + 4, by, bw, bar_h, 0x00222222)
     if fps_pct > 0 then
-        chaos_gl.rect(x + 4, by, math.max(1, math.floor((w - 8) * fps_pct)), bar_h, 0x0000CC00)
+        chaos_gl.rect(x + 4, by, math.max(1, math.floor(bw * fps_pct)), bar_h, 0x0000CC00)
     end
 
-    -- CPU bar (orange)
+    -- CPU bar (red) — scheduler CPU usage 0-100%
+    by = by + bar_h + gap
+    local cpu_pct = math.min(1.0, aios.task.cpu_usage() / 100)
+    chaos_gl.rect(x + 4, by, bw, bar_h, 0x00222222)
+    if cpu_pct > 0 then
+        chaos_gl.rect(x + 4, by, math.max(1, math.floor(bw * cpu_pct)), bar_h, 0x00EE4444)
+    end
+
+    -- Render bar (orange) — compose time, scale: 0-16ms
     by = by + bar_h + gap
     local compose_stats = chaos_gl.get_compose_stats()
-    local cpu_pct = 0
+    local render_pct = 0
     if compose_stats then
-        cpu_pct = math.min(1.0, (compose_stats.compose_time_us or 0) / 16000)
+        render_pct = math.min(1.0, (compose_stats.compose_time_us or 0) / 16000)
     end
-    chaos_gl.rect_rounded(x + 4, by, w - 8, bar_h, 2, 0x00222222)
-    if cpu_pct > 0 then
-        chaos_gl.rect(x + 4, by, math.max(1, math.floor((w - 8) * cpu_pct)), bar_h, 0x00FF8800)
+    chaos_gl.rect(x + 4, by, bw, bar_h, 0x00222222)
+    if render_pct > 0 then
+        chaos_gl.rect(x + 4, by, math.max(1, math.floor(bw * render_pct)), bar_h, 0x00FF8800)
     end
 
     -- MEM bar (blue)
+    by = by + bar_h + gap
     local info = aios.os.meminfo()
     local mem_pct = 0
     if info and info.pmm_total_pages and info.pmm_total_pages > 0 then
         mem_pct = 1.0 - (info.pmm_free_pages / info.pmm_total_pages)
     end
-    by = by + bar_h + gap
-    chaos_gl.rect_rounded(x + 4, by, w - 8, bar_h, 2, 0x00222222)
+    chaos_gl.rect(x + 4, by, bw, bar_h, 0x00222222)
     if mem_pct > 0 then
-        chaos_gl.rect(x + 4, by, math.max(1, math.floor((w - 8) * mem_pct)), bar_h, 0x004488FF)
+        chaos_gl.rect(x + 4, by, math.max(1, math.floor(bw * mem_pct)), bar_h, 0x004488FF)
     end
 end
 
@@ -254,6 +323,17 @@ function wm._handle_taskbar_click(event)
             return
         end
         ix = ix + DOCK_ICON + DOCK_GAP
+    end
+
+    -- Separator
+    if #wins > 0 then
+        ix = ix + 2 + DOCK_GAP
+    end
+
+    -- Stats widget
+    if mx >= ix and mx < ix + stats_w then
+        aios.task.spawn("/apps/sysmon.lua", "System Monitor")
+        return
     end
 end
 
@@ -309,8 +389,16 @@ local function get_resize_zone(surface, mx, my)
     if ly >= sh - RESIZE_BORDER and lx >= RESIZE_BORDER then
         return "resize_b"
     end
-    -- Titlebar = move
+    -- Titlebar = move (but not if clicking traffic light buttons)
     if ly < TITLEBAR_H then
+        -- Check if click is on a traffic light button
+        local btn_cy = TB_BTN_Y_CENTER
+        for i = 0, 2 do
+            local bx = TB_BTN_X_START + i * TB_BTN_SPACING
+            if (lx - bx)^2 + (ly - btn_cy)^2 <= (TB_BTN_RADIUS + 2)^2 then
+                return nil  -- let the click through to the app
+            end
+        end
         return "move"
     end
     return nil
@@ -379,6 +467,18 @@ function wm.route_mouse(event)
                     hit_z = z
                 end
             end
+        end
+    end
+
+    -- Track titlebar button hover on mouse move
+    if hit and event.type == EVENT_MOUSE_MOVE then
+        update_titlebar_hover(hit, event.mouse_x, event.mouse_y)
+    end
+
+    -- Clear hover for surfaces the mouse isn't over
+    for surf, _ in pairs(tb_hover_state) do
+        if surf ~= hit then
+            tb_hover_state[surf] = nil
         end
     end
 
@@ -482,7 +582,12 @@ function wm._scan_apps()
                         if line then
                             local app_name = line:match('^%-%- @app name="([^"]+)"')
                             if app_name then
-                                app_list[#app_list + 1] = {name = app_name, path = path}
+                                local app_icon = line:match('icon="([^"]+)"')
+                                local tex = -1
+                                if app_icon then
+                                    tex = chaos_gl.load_texture(app_icon)
+                                end
+                                app_list[#app_list + 1] = {name = app_name, path = path, tex = tex}
                             end
                         end
                     end
@@ -503,8 +608,8 @@ end
 
 function wm._open_app_menu()
     if #app_list == 0 then return end
-    local item_h = 28
-    local menu_w = 160
+    local item_h = 32
+    local menu_w = 180
     local menu_h = #app_list * item_h + 4
     local menu_y = 768 - DOCK_H - menu_h - 4
 
@@ -524,32 +629,62 @@ end
 function wm._draw_app_menu(hover_idx)
     if not app_menu_surface then return end
     chaos_gl.surface_bind(app_menu_surface)
-    local bg = theme and theme.menu_bg or 0x003A3A3A
-    local border = theme and theme.menu_border or 0x00555555
+    local bg = theme and theme.menu_bg or 0x00333340
+    local border = theme and theme.menu_border or 0x00555565
     local text_c = theme and theme.menu_text or 0x00FFFFFF
-    local hover_c = theme and theme.menu_hover or 0x00FF8800
+    local hover_c = theme and theme.menu_hover or 0x00444460
+    local accent = theme and theme.accent or 0x00FF8800
     local mw, mh = chaos_gl.surface_get_size(app_menu_surface)
+    local item_h = 32
+    local afh = chaos_gl.font_height(-1)
 
     chaos_gl.surface_clear(app_menu_surface, bg)
-    chaos_gl.rect_outline(0, 0, mw, mh, border, 1)
+    chaos_gl.rect_rounded_outline(0, 0, mw, mh, 6, border, 1)
 
     for i, app in ipairs(app_list) do
-        local y = (i - 1) * 28 + 2
+        local y = (i - 1) * item_h + 2
         if i == hover_idx then
-            chaos_gl.rect(2, y, mw - 4, 28, hover_c)
+            chaos_gl.rect_rounded(4, y + 1, mw - 8, item_h - 2, 4, hover_c)
         end
-        local afh = chaos_gl.font_height(-1)
-        chaos_gl.text(12, y + (28 - afh) // 2, app.name, text_c, 0, 0)
+
+        -- App icon (if available)
+        local tx = 12
+        if app.tex and app.tex >= 0 then
+            local iw, ih = chaos_gl.texture_get_size(app.tex)
+            local iy = y + (item_h - ih) // 2
+            if chaos_gl.texture_has_alpha(app.tex) then
+                chaos_gl.blit_alpha(tx, iy, iw, ih, app.tex)
+            else
+                chaos_gl.blit_keyed(tx, iy, iw, ih, app.tex, 0x00FF00FF)
+            end
+            tx = tx + iw + 8
+        end
+
+        chaos_gl.text(tx, y + (item_h - afh) // 2, app.name, text_c, 0, 0)
     end
 
     chaos_gl.surface_present(app_menu_surface)
+end
+
+local app_menu_hover = -1
+
+function wm._handle_app_menu_hover(event)
+    if not app_menu_surface then return end
+    local mx, my = chaos_gl.surface_get_position(app_menu_surface)
+    local local_y = event.mouse_y - my
+    local idx = math.floor((local_y - 2) / 32) + 1
+    if idx < 1 or idx > #app_list then idx = -1 end
+    if idx ~= app_menu_hover then
+        app_menu_hover = idx
+        wm._draw_app_menu(app_menu_hover)
+    end
 end
 
 function wm._handle_app_menu_click(event)
     if not app_menu_surface then return end
     local mx, my = chaos_gl.surface_get_position(app_menu_surface)
     local local_y = event.mouse_y - my
-    local idx = math.floor((local_y - 2) / 28) + 1
+    local idx = math.floor((local_y - 2) / 32) + 1
     if idx >= 1 and idx <= #app_list then
         local app = app_list[idx]
         aios.task.spawn(app.path, app.name)
@@ -563,6 +698,7 @@ function wm._close_app_menu()
         app_menu_surface = nil
     end
     app_menu_visible = false
+    app_menu_hover = -1
 end
 
 -- ── Desktop click handler ───────────────────────────

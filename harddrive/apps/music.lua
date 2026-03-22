@@ -1,20 +1,13 @@
--- @app name="Music" icon="/system/icons/shell_48.raw"
+-- @app name="Music" icon="/system/icons/music_32.png"
 -- AIOS v2 — Music Player
-
-local surface = chaos_gl.surface_create(400, 340, false)
-chaos_gl.surface_set_position(surface, 180, 100)
-chaos_gl.surface_set_visible(surface, true)
-aios.wm.register(surface, {
-    title = "Music Player",
-    task_id = aios.task.self().id,
-})
+local AppWindow = require("appwindow")
+local win = AppWindow.new("Music Player", 400, 340, {x=180, y=100})
 
 local playlist = {}
 local current_idx = 0
 local current_id = nil
 local volume = 80
 local state = "stopped"
-local running = true
 
 -- Scan for audio files
 local function scan_music()
@@ -52,21 +45,14 @@ end
 
 local scroll_y = 0
 
-while running do
+while win:is_running() do
     -- Draw
-    chaos_gl.surface_bind(surface)
-    local bg = theme and theme.window_bg or 0x002D2D2D
-    local text_c = theme and theme.text_primary or 0x00FFFFFF
-    local sec_c = theme and theme.text_secondary or 0x00AAAAAA
-    local accent = theme and theme.accent or 0x00FF8800
-    local titlebar_bg = theme and theme.titlebar_bg or 0x003C3C3C
-    chaos_gl.surface_clear(surface, bg)
+    local bg = win:color("window_bg", 0x002D2D2D)
+    local text_c = win:color("text_primary", 0x00FFFFFF)
+    local sec_c = win:color("text_secondary", 0x00AAAAAA)
+    local accent = win:color("accent", 0x00FF8800)
 
-    -- Title bar
-    chaos_gl.rect(0, 0, 400, 28, titlebar_bg)
-    chaos_gl.text(8, 6, "Music Player", text_c, 0, 0)
-    chaos_gl.rect(400 - 28, 0, 28, 28, 0x00FF4444)
-    chaos_gl.text(400 - 20, 6, "X", 0x00FFFFFF, 0, 0)
+    win:begin_frame()
 
     -- Now playing
     local np_y = 32
@@ -95,7 +81,7 @@ while running do
         b.x = bx
         chaos_gl.rect(bx, ctrl_y, btn_w, 26, 0x00444455)
         local tw = chaos_gl.text_width(b.label)
-        chaos_gl.text(bx + (btn_w - tw) / 2, ctrl_y + 5, b.label, text_c, 0, 0)
+        chaos_gl.text(bx + (btn_w - tw) // 2, ctrl_y + 5, b.label, text_c, 0, 0)
     end
 
     -- Volume
@@ -125,22 +111,14 @@ while running do
         chaos_gl.text(16, iy + 3, playlist[i].name, name_c, 0, 0)
     end
 
-    chaos_gl.surface_present(surface)
+    win:end_frame()
 
     -- Events
-    local event = aios.wm.poll_event(surface)
-    while event do
-        if event.type == EVENT_CLOSE then
-            running = false
-        elseif event.type == EVENT_KEY_DOWN then
-            if event.key == 1 then running = false end
-        elseif event.type == EVENT_MOUSE_DOWN and event.button == 1 then
+    for _, event in ipairs(win:poll_events()) do
+        if event.type == EVENT_MOUSE_DOWN and event.button == 1 then
             local mx, my = event.mouse_x, event.mouse_y
-            -- Close button
-            if mx >= 400 - 28 and my < 28 then
-                running = false
             -- Transport buttons
-            elseif my >= ctrl_y and my < ctrl_y + 26 then
+            if my >= ctrl_y and my < ctrl_y + 26 then
                 for _, b in ipairs(buttons) do
                     if mx >= b.x and mx < b.x + btn_w then
                         if b.action == "toggle" then
@@ -189,7 +167,6 @@ while running do
                 scroll_y = math.max(0, #playlist - 5)
             end
         end
-        event = aios.wm.poll_event(surface)
     end
 
     -- Check if track finished (just stop, don't auto-advance)
@@ -206,5 +183,4 @@ end
 
 -- Cleanup
 if current_id then aios.audio.stop(current_id) end
-aios.wm.unregister(surface)
-chaos_gl.surface_destroy(surface)
+win:destroy()

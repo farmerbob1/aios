@@ -1,14 +1,10 @@
--- @app name="Web Server" icon="/system/icons/shell_48.raw"
+-- @app name="Web Server" icon="/system/icons/globe_32.png"
 -- AIOS v2 — Static File HTTP Web Server
+local AppWindow = require("appwindow")
 -- Serves files from /apps/webserver/www/
 
-local surface = chaos_gl.surface_create(400, 300, false)
-chaos_gl.surface_set_position(surface, 200, 150)
-chaos_gl.surface_set_visible(surface, true)
-aios.wm.register(surface, {
-    title = "Web Server",
-    task_id = aios.task.self().id,
-})
+local win = AppWindow.new("Web Server", 400, 350, {x=200, y=120})
+local TITLEBAR_H = AppWindow.TITLEBAR_H
 
 local PORT = 9090
 local WWW_ROOT = "/apps/webserver/www"
@@ -16,7 +12,6 @@ local server = nil
 local log = {}
 local max_log = 50
 local request_count = 0
-local running = true
 local started = false
 
 local function add_log(text)
@@ -147,43 +142,37 @@ else
 end
 
 -- Main loop
-while running do
-    -- Draw
-    chaos_gl.surface_bind(surface)
-    local bg = theme and theme.window_bg or 0x002D2D2D
+while win:is_running() do
+    local sw, sh = win:get_size()
+    win:begin_frame()
+
     local text_c = theme and theme.text_primary or 0x00FFFFFF
     local sec_c = theme and theme.text_secondary or 0x00AAAAAA
     local accent = theme and theme.accent or 0x00FF8800
-    local titlebar_bg = theme and theme.titlebar_bg or 0x003C3C3C
-    chaos_gl.surface_clear(surface, bg)
-
-    -- Title bar
-    chaos_gl.rect(0, 0, 400, 28, titlebar_bg)
-    chaos_gl.text(8, 6, "Web Server", text_c, 0, 0)
-    chaos_gl.rect(400 - 28, 0, 28, 28, 0x00FF4444)
-    chaos_gl.text(400 - 20, 6, "X", 0x00FFFFFF, 0, 0)
 
     -- Status panel
     local info = aios.net.ifconfig() or {}
     local status_color = started and 0x0044FF44 or 0x00FF4444
     local status_text = started and "RUNNING" or "STOPPED"
-    chaos_gl.text(12, 36, "Status:", sec_c, 0, 0)
-    chaos_gl.text(80, 36, status_text, status_color, 0, 0)
-    chaos_gl.text(12, 52, "Address:", sec_c, 0, 0)
-    chaos_gl.text(80, 52, (info.ip or "...") .. ":" .. PORT, text_c, 0, 0)
-    chaos_gl.text(12, 68, "Requests:", sec_c, 0, 0)
-    chaos_gl.text(80, 68, tostring(request_count), accent, 0, 0)
+    local py = TITLEBAR_H + 8
+    chaos_gl.text(12, py, "Status:", sec_c, 0, 0)
+    chaos_gl.text(80, py, status_text, status_color, 0, 0)
+    chaos_gl.text(12, py + 16, "Address:", sec_c, 0, 0)
+    chaos_gl.text(80, py + 16, (info.ip or "...") .. ":" .. PORT, text_c, 0, 0)
+    chaos_gl.text(12, py + 32, "Requests:", sec_c, 0, 0)
+    chaos_gl.text(80, py + 32, tostring(request_count), accent, 0, 0)
 
     -- Separator
-    chaos_gl.rect(8, 86, 384, 1, 0x00444444)
+    local sep_y = py + 50
+    chaos_gl.rect(8, sep_y, sw - 16, 1, 0x00444444)
 
     -- Log area
-    chaos_gl.text(12, 92, "Request Log:", sec_c, 0, 0)
-    local log_y = 108
+    chaos_gl.text(12, sep_y + 6, "Request Log:", sec_c, 0, 0)
+    local log_y = sep_y + 22
     local visible_lines = 12
     local start_idx = math.max(1, #log - visible_lines + 1)
     for i = start_idx, #log do
-        if log_y >= 290 then break end
+        if log_y >= sh - 10 then break end
         local c = text_c
         if log[i]:match("^ERROR") then c = 0x00FF4444
         elseif log[i]:match("200$") then c = 0x0044FF44
@@ -193,7 +182,7 @@ while running do
         log_y = log_y + 15
     end
 
-    chaos_gl.surface_present(surface)
+    win:end_frame()
 
     -- Check for incoming connections (non-blocking, very short timeout)
     if started and server then
@@ -204,20 +193,8 @@ while running do
     end
 
     -- Events
-    local event = aios.wm.poll_event(surface)
-    while event do
-        if event.type == EVENT_CLOSE then
-            running = false
-        elseif event.type == EVENT_KEY_DOWN then
-            if event.key == 1 then -- Escape
-                running = false
-            end
-        elseif event.type == EVENT_MOUSE_DOWN and event.button == 1 then
-            if event.mouse_x >= 400 - 28 and event.mouse_y < 28 then
-                running = false
-            end
-        end
-        event = aios.wm.poll_event(surface)
+    for _, event in ipairs(win:poll_events()) do
+        -- All close/ESC handling done by AppWindow; no app-specific events needed
     end
 
     aios.os.sleep(16)
@@ -227,5 +204,4 @@ end
 if server then
     aios.net.tcp_server_close(server)
 end
-aios.wm.unregister(surface)
-chaos_gl.surface_destroy(surface)
+win:destroy()

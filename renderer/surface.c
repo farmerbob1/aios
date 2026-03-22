@@ -242,14 +242,39 @@ int chaos_gl_surface_resize(int handle, int w, int h) {
 
     chaos_gl_surface_t* s = &surfaces[handle];
 
+    uint32_t pixel_bytes = (uint32_t)w * (uint32_t)h * 4;
+    uint32_t pages_needed = (pixel_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    /* If new size fits in existing allocation, reuse buffers.
+     * Clear only the front buffer (compositor reads it immediately).
+     * The back buffer is cleared by the app's next surface_clear. */
+    if (pages_needed <= s->bufs_pages[0]) {
+        bool had_depth = (s->zbuffer != NULL);
+        if (had_depth) {
+            uint32_t zbuf_bytes = (uint32_t)w * (uint32_t)h * 2;
+            uint32_t zbuf_pages_needed = (zbuf_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+            if (zbuf_pages_needed > s->zbuf_pages) {
+                goto full_realloc;
+            }
+        }
+        s->width = w;
+        s->height = h;
+        s->dirty = true;
+        s->clip_stack[0] = (rect_t){0, 0, w, h};
+        s->clip_depth = 1;
+        return 0;
+    }
+
+full_realloc:
     free_buffer((uint32_t)s->bufs[0], s->bufs_pages[0]);
     free_buffer((uint32_t)s->bufs[1], s->bufs_pages[1]);
     if (s->zbuffer) {
         free_buffer((uint32_t)s->zbuffer, s->zbuf_pages);
     }
 
-    uint32_t pixel_bytes = (uint32_t)w * (uint32_t)h * 4;
-    uint32_t pages = (pixel_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+    /* Over-allocate by 25% to reduce future reallocs */
+    uint32_t pages = pages_needed + pages_needed / 4;
+    if (pages < pages_needed + 4) pages = pages_needed + 4;
 
     uint32_t buf0 = alloc_buffer(pages);
     if (!buf0) {
@@ -272,7 +297,9 @@ int chaos_gl_surface_resize(int handle, int w, int h) {
     if (had_depth) {
         uint32_t zbuf_bytes = (uint32_t)w * (uint32_t)h * 2;
         zbuf_pages = (zbuf_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
-        zbuf = alloc_buffer(zbuf_pages);
+        uint32_t zbuf_alloc = zbuf_pages + zbuf_pages / 4;
+        if (zbuf_alloc < zbuf_pages + 2) zbuf_alloc = zbuf_pages + 2;
+        zbuf = alloc_buffer(zbuf_alloc);
         if (!zbuf) {
             serial_printf("surface_resize: OOM for zbuffer\n");
             free_buffer(buf0, pages);
@@ -280,6 +307,7 @@ int chaos_gl_surface_resize(int handle, int w, int h) {
             s->in_use = false;
             return -1;
         }
+        zbuf_pages = zbuf_alloc;
     }
 
     memset((void*)buf0, 0, pixel_bytes);

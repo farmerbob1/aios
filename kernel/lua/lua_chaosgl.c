@@ -120,20 +120,20 @@ static int l_surface_set_color_key(lua_State *L) {
 /* ── 2D Primitives ───────────────────────────────────── */
 
 static int l_rect(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
-    int w = (int)luaL_checkinteger(L, 3);
-    int h = (int)luaL_checkinteger(L, 4);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
+    int w = (int)luaL_checknumber(L, 3);
+    int h = (int)luaL_checknumber(L, 4);
     uint32_t color = (uint32_t)luaL_checkinteger(L, 5);
     chaos_gl_rect(x, y, w, h, color);
     return 0;
 }
 
 static int l_rect_outline(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
-    int w = (int)luaL_checkinteger(L, 3);
-    int h = (int)luaL_checkinteger(L, 4);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
+    int w = (int)luaL_checknumber(L, 3);
+    int h = (int)luaL_checknumber(L, 4);
     uint32_t color = (uint32_t)luaL_checkinteger(L, 5);
     int thickness = (int)luaL_optinteger(L, 6, 1);
     chaos_gl_rect_outline(x, y, w, h, color, thickness);
@@ -141,22 +141,22 @@ static int l_rect_outline(lua_State *L) {
 }
 
 static int l_rect_rounded(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
-    int w = (int)luaL_checkinteger(L, 3);
-    int h = (int)luaL_checkinteger(L, 4);
-    int radius = (int)luaL_checkinteger(L, 5);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
+    int w = (int)luaL_checknumber(L, 3);
+    int h = (int)luaL_checknumber(L, 4);
+    int radius = (int)luaL_checknumber(L, 5);
     uint32_t color = (uint32_t)luaL_checkinteger(L, 6);
     chaos_gl_rect_rounded(x, y, w, h, radius, color);
     return 0;
 }
 
 static int l_rect_rounded_outline(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
-    int w = (int)luaL_checkinteger(L, 3);
-    int h = (int)luaL_checkinteger(L, 4);
-    int radius = (int)luaL_checkinteger(L, 5);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
+    int w = (int)luaL_checknumber(L, 3);
+    int h = (int)luaL_checknumber(L, 4);
+    int radius = (int)luaL_checknumber(L, 5);
     uint32_t color = (uint32_t)luaL_checkinteger(L, 6);
     int thickness = (int)luaL_optinteger(L, 7, 1);
     chaos_gl_rect_rounded_outline(x, y, w, h, radius, color, thickness);
@@ -164,18 +164,18 @@ static int l_rect_rounded_outline(lua_State *L) {
 }
 
 static int l_circle(lua_State *L) {
-    int cx = (int)luaL_checkinteger(L, 1);
-    int cy = (int)luaL_checkinteger(L, 2);
-    int radius = (int)luaL_checkinteger(L, 3);
+    int cx = (int)luaL_checknumber(L, 1);
+    int cy = (int)luaL_checknumber(L, 2);
+    int radius = (int)luaL_checknumber(L, 3);
     uint32_t color = (uint32_t)luaL_checkinteger(L, 4);
     chaos_gl_circle(cx, cy, radius, color);
     return 0;
 }
 
 static int l_circle_outline(lua_State *L) {
-    int cx = (int)luaL_checkinteger(L, 1);
-    int cy = (int)luaL_checkinteger(L, 2);
-    int radius = (int)luaL_checkinteger(L, 3);
+    int cx = (int)luaL_checknumber(L, 1);
+    int cy = (int)luaL_checknumber(L, 2);
+    int radius = (int)luaL_checknumber(L, 3);
     uint32_t color = (uint32_t)luaL_checkinteger(L, 4);
     int thickness = (int)luaL_optinteger(L, 5, 1);
     chaos_gl_circle_outline(cx, cy, radius, color, thickness);
@@ -183,18 +183,18 @@ static int l_circle_outline(lua_State *L) {
 }
 
 static int l_line(lua_State *L) {
-    int x0 = (int)luaL_checkinteger(L, 1);
-    int y0 = (int)luaL_checkinteger(L, 2);
-    int x1 = (int)luaL_checkinteger(L, 3);
-    int y1 = (int)luaL_checkinteger(L, 4);
+    int x0 = (int)luaL_checknumber(L, 1);
+    int y0 = (int)luaL_checknumber(L, 2);
+    int x1 = (int)luaL_checknumber(L, 3);
+    int y1 = (int)luaL_checknumber(L, 4);
     uint32_t color = (uint32_t)luaL_checkinteger(L, 5);
     chaos_gl_line(x0, y0, x1, y1, color);
     return 0;
 }
 
 static int l_pixel(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
     uint32_t color = (uint32_t)luaL_checkinteger(L, 3);
     chaos_gl_pixel(x, y, color);
     return 0;
@@ -204,10 +204,10 @@ static int l_pixel(lua_State *L) {
 
 static int l_push_clip(lua_State *L) {
     rect_t r;
-    r.x = (int)luaL_checkinteger(L, 1);
-    r.y = (int)luaL_checkinteger(L, 2);
-    r.w = (int)luaL_checkinteger(L, 3);
-    r.h = (int)luaL_checkinteger(L, 4);
+    r.x = (int)luaL_checknumber(L, 1);
+    r.y = (int)luaL_checknumber(L, 2);
+    r.w = (int)luaL_checknumber(L, 3);
+    r.h = (int)luaL_checknumber(L, 4);
     chaos_gl_push_clip(r);
     return 0;
 }
@@ -227,8 +227,8 @@ static int l_reset_clip(lua_State *L) {
 /* ── Text ────────────────────────────────────────────── */
 
 static int l_text(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
     const char *str = luaL_checkstring(L, 3);
     uint32_t fg = (uint32_t)luaL_checkinteger(L, 4);
     uint32_t bg = (uint32_t)luaL_optinteger(L, 5, 0);
@@ -239,9 +239,9 @@ static int l_text(lua_State *L) {
 }
 
 static int l_text_wrapped(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
-    int max_w = (int)luaL_checkinteger(L, 3);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
+    int max_w = (int)luaL_checknumber(L, 3);
     const char *str = luaL_checkstring(L, 4);
     uint32_t fg = (uint32_t)luaL_checkinteger(L, 5);
     uint32_t bg = (uint32_t)luaL_optinteger(L, 6, 0);
@@ -267,8 +267,8 @@ static int l_text_height_wrapped(lua_State *L) {
 }
 
 static int l_char(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
     const char *s = luaL_checkstring(L, 3);
     char c = s[0];
     uint32_t fg = (uint32_t)luaL_checkinteger(L, 4);
@@ -308,8 +308,8 @@ static int l_get_font(lua_State *L) {
 
 static int l_font_text(lua_State *L) {
     int handle = (int)luaL_checkinteger(L, 1);
-    int x = (int)luaL_checkinteger(L, 2);
-    int y = (int)luaL_checkinteger(L, 3);
+    int x = (int)luaL_checknumber(L, 2);
+    int y = (int)luaL_checknumber(L, 3);
     const char *str = luaL_checkstring(L, 4);
     uint32_t fg = (uint32_t)luaL_checkinteger(L, 5);
     int result = chaos_gl_font_text(handle, x, y, str, fg);
@@ -326,9 +326,9 @@ static int l_font_text_width(lua_State *L) {
 
 static int l_font_text_wrapped(lua_State *L) {
     int handle = (int)luaL_checkinteger(L, 1);
-    int x = (int)luaL_checkinteger(L, 2);
-    int y = (int)luaL_checkinteger(L, 3);
-    int max_w = (int)luaL_checkinteger(L, 4);
+    int x = (int)luaL_checknumber(L, 2);
+    int y = (int)luaL_checknumber(L, 3);
+    int max_w = (int)luaL_checknumber(L, 4);
     const char *str = luaL_checkstring(L, 5);
     uint32_t fg = (uint32_t)luaL_checkinteger(L, 6);
     int result = chaos_gl_font_text_wrapped(handle, x, y, max_w, str, fg);
@@ -396,10 +396,10 @@ static int l_texture_get_size(lua_State *L) {
 /* ── Blit (texture handle based) ─────────────────────── */
 
 static int l_blit(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
-    int w = (int)luaL_checkinteger(L, 3);
-    int h = (int)luaL_checkinteger(L, 4);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
+    int w = (int)luaL_checknumber(L, 3);
+    int h = (int)luaL_checknumber(L, 4);
     int tex_handle = (int)luaL_checkinteger(L, 5);
     const chaos_gl_texture_t *tex = chaos_gl_texture_get(tex_handle);
     if (!tex || !tex->data) return 0;
@@ -408,10 +408,10 @@ static int l_blit(lua_State *L) {
 }
 
 static int l_blit_keyed(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
-    int w = (int)luaL_checkinteger(L, 3);
-    int h = (int)luaL_checkinteger(L, 4);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
+    int w = (int)luaL_checknumber(L, 3);
+    int h = (int)luaL_checknumber(L, 4);
     int tex_handle = (int)luaL_checkinteger(L, 5);
     uint32_t key = (uint32_t)luaL_checkinteger(L, 6);
     const chaos_gl_texture_t *tex = chaos_gl_texture_get(tex_handle);
@@ -421,10 +421,10 @@ static int l_blit_keyed(lua_State *L) {
 }
 
 static int l_blit_alpha(lua_State *L) {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
-    int w = (int)luaL_checkinteger(L, 3);
-    int h = (int)luaL_checkinteger(L, 4);
+    int x = (int)luaL_checknumber(L, 1);
+    int y = (int)luaL_checknumber(L, 2);
+    int w = (int)luaL_checknumber(L, 3);
+    int h = (int)luaL_checknumber(L, 4);
     int tex_handle = (int)luaL_checkinteger(L, 5);
     const chaos_gl_texture_t *tex = chaos_gl_texture_get(tex_handle);
     if (!tex || !tex->data) return 0;

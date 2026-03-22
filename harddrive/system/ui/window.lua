@@ -17,6 +17,7 @@ function Window.new(title, opts)
     self.surface = opts and opts.surface or nil
     self.focusable = false
     self.active = true
+    self.maximized = false
     self._dragging = false
     self._resizing = false
     self._drag_start_x = 0
@@ -34,6 +35,12 @@ function Window:_titlebar_height()
     return self:get_style("titlebar_height") or 28
 end
 
+-- Traffic light button constants
+local BTN_RADIUS = 6
+local BTN_Y_CENTER = 14  -- vertical center in titlebar
+local BTN_X_START = 12   -- left margin
+local BTN_SPACING = 20   -- center-to-center
+
 function Window:draw(x, y)
     if not self.visible then return end
     self._layout_x = x
@@ -41,35 +48,53 @@ function Window:draw(x, y)
     local w, h = self:get_size()
     local th = self:_titlebar_height()
 
-    -- Window background
+    -- Window background with rounded corners
     local bg = self:get_style("window_bg") or 0x002D2D2D
-    chaos_gl.rect(x, y, w, h, bg)
+    chaos_gl.rect_rounded(x, y, w, h, 4, bg)
 
     -- Border
-    local bc = self:get_style("window_border") or 0x00555555
-    chaos_gl.rect_outline(x, y, w, h, bc, 1)
+    local bc = self.active
+        and (self:get_style("window_border_active") or 0x00555565)
+        or (self:get_style("window_border") or 0x00444450)
+    chaos_gl.rect_rounded_outline(x, y, w, h, 4, bc, 1)
 
     -- Titlebar
     local tbg = self.active
         and (self:get_style("titlebar_bg") or 0x003C3C3C)
         or (self:get_style("titlebar_bg_inactive") or 0x00333333)
-    chaos_gl.rect(x, y, w, th, tbg)
+    chaos_gl.rect_rounded(x, y, w, th, 4, tbg)
+    -- Square off bottom corners of titlebar
+    chaos_gl.rect(x, y + th - 4, w, 4, tbg)
 
-    local tfg = self:get_style("titlebar_text") or 0x00FFFFFF
-    local fh = chaos_gl.font_height(-1)
-    chaos_gl.text(x + 8, y + (th - fh) // 2, self.title, tfg, 0, 0)
+    -- Separator line under titlebar
+    chaos_gl.rect(x + 1, y + th - 1, w - 2, 1, 0x00222228)
 
-    -- Close button
-    if self.closable then
-        local bx = x + w - th
-        local by = y
-        local cc = 0x00FFFFFF
-        chaos_gl.line(bx + 8, by + 8, bx + th - 8, by + th - 8, cc)
-        chaos_gl.line(bx + th - 8, by + 8, bx + 8, by + th - 8, cc)
+    -- Traffic light buttons (left side)
+    local btn_cy = y + BTN_Y_CENTER
+    if self.active then
+        -- Close (red)
+        chaos_gl.circle(x + BTN_X_START, btn_cy, BTN_RADIUS, 0x004444FF)
+        -- Minimize (yellow)
+        chaos_gl.circle(x + BTN_X_START + BTN_SPACING, btn_cy, BTN_RADIUS, 0x0000BBFF)
+        -- Maximize (green)
+        chaos_gl.circle(x + BTN_X_START + BTN_SPACING * 2, btn_cy, BTN_RADIUS, 0x0000CC44)
+    else
+        -- Inactive: all grey
+        local gc = 0x00555555
+        chaos_gl.circle(x + BTN_X_START, btn_cy, BTN_RADIUS, gc)
+        chaos_gl.circle(x + BTN_X_START + BTN_SPACING, btn_cy, BTN_RADIUS, gc)
+        chaos_gl.circle(x + BTN_X_START + BTN_SPACING * 2, btn_cy, BTN_RADIUS, gc)
     end
 
+    -- Title (centered)
+    local tfg = self:get_style("titlebar_text") or 0x00FFFFFF
+    local fh = chaos_gl.font_height(-1)
+    local tw = chaos_gl.text_width(self.title)
+    local title_x = x + (w - tw) // 2
+    chaos_gl.text(title_x, y + (th - fh) // 2, self.title, tfg, 0, 0)
+
     -- Resize handle
-    if self.resizable then
+    if self.resizable and not self.maximized then
         local rx = x + w - 12
         local ry = y + h - 12
         local gc = self:get_style("text_secondary") or 0x00AAAAAA
@@ -88,6 +113,18 @@ function Window:draw(x, y)
     end
 end
 
+function Window:_hit_button(mx, my)
+    local btn_cy = self._layout_y + BTN_Y_CENTER
+    local bx_close = self._layout_x + BTN_X_START
+    local bx_min = self._layout_x + BTN_X_START + BTN_SPACING
+    local bx_max = self._layout_x + BTN_X_START + BTN_SPACING * 2
+
+    if (mx - bx_close)^2 + (my - btn_cy)^2 <= (BTN_RADIUS + 2)^2 then return "close" end
+    if (mx - bx_min)^2 + (my - btn_cy)^2 <= (BTN_RADIUS + 2)^2 then return "minimize" end
+    if (mx - bx_max)^2 + (my - btn_cy)^2 <= (BTN_RADIUS + 2)^2 then return "maximize" end
+    return nil
+end
+
 function Window:on_input(event)
     local w, h = self:get_size()
     local th = self:_titlebar_height()
@@ -95,15 +132,30 @@ function Window:on_input(event)
     if event.type == core.EVENT_MOUSE_DOWN and event.button == 1 then
         local mx, my = event.mouse_x, event.mouse_y
 
-        -- Close button
-        if self.closable and mx >= self._layout_x + w - th and mx < self._layout_x + w
-           and my >= self._layout_y and my < self._layout_y + th then
+        -- Traffic light buttons
+        local btn = self:_hit_button(mx, my)
+        if btn == "close" then
             if self.on_close then self.on_close() end
+            return true
+        elseif btn == "minimize" then
+            if self.surface then aios.wm.minimize(self.surface) end
+            return true
+        elseif btn == "maximize" then
+            if self.surface then
+                if self.maximized then
+                    aios.wm.restore_size(self.surface)
+                    self.maximized = false
+                else
+                    aios.wm.maximize(self.surface)
+                    self.maximized = true
+                end
+            end
             return true
         end
 
-        -- Resize handle
-        if self.resizable and mx >= self._layout_x + w - 12 and my >= self._layout_y + h - 12 then
+        -- Resize handle (not when maximized)
+        if self.resizable and not self.maximized and
+           mx >= self._layout_x + w - 12 and my >= self._layout_y + h - 12 then
             self._resizing = true
             self._drag_start_x = mx
             self._drag_start_y = my
@@ -112,9 +164,10 @@ function Window:on_input(event)
             return true
         end
 
-        -- Titlebar drag
-        if my >= self._layout_y and my < self._layout_y + th
-           and mx >= self._layout_x and mx < self._layout_x + w then
+        -- Titlebar drag (not when maximized)
+        if not self.maximized and
+           my >= self._layout_y and my < self._layout_y + th and
+           mx >= self._layout_x and mx < self._layout_x + w then
             self._dragging = true
             self._drag_start_x = mx
             self._drag_start_y = my
@@ -147,7 +200,6 @@ function Window:on_input(event)
             self:invalidate()
             return true
         end
-        -- Forward mouse moves to content
         if self.content then
             return self.content:on_input(event)
         end
@@ -164,7 +216,6 @@ function Window:on_input(event)
             return self.content:on_input(event)
         end
     else
-        -- Forward other events to content
         if self.content then
             return self.content:on_input(event)
         end

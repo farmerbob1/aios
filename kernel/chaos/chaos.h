@@ -37,6 +37,10 @@ int chaos_opendir(const char* path);
 int chaos_readdir(int handle, struct chaos_dirent* out);
 int chaos_closedir(int handle);
 
+/* ── Checksum ──────────────────────────────────────── */
+
+uint32_t chaos_crc32(const void* data, size_t len);
+
 /* ── Utility ───────────────────────────────────────── */
 
 uint32_t    chaos_free_blocks(void);

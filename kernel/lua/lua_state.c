@@ -24,6 +24,7 @@ extern void aios_register_chaosgl(lua_State *L);
 extern void aios_register_wm(lua_State *L);
 extern void aios_register_net(lua_State *L);
 extern void aios_register_audio(lua_State *L);
+extern void aios_register_cpk(lua_State *L);
 
 /* From lua_kaos.c */
 struct lua_kaos_binding {
@@ -141,6 +142,7 @@ lua_State *lua_state_create(void) {
     aios_register_wm(L);
     aios_register_net(L);
     aios_register_audio(L);
+    aios_register_cpk(L);
 
     /* Register event type constants — must match input.h enum */
     lua_pushinteger(L, EVENT_KEY_DOWN);    lua_setglobal(L, "EVENT_KEY_DOWN");

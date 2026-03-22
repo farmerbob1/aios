@@ -1,4 +1,3 @@
--- @app name="Music" icon="/system/icons/music_32.png"
 -- AIOS v2 — Music Player
 local AppWindow = require("appwindow")
 local win = AppWindow.new("Music Player", 400, 340, {x=180, y=100})

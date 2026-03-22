@@ -1,4 +1,3 @@
--- @app name="System Monitor" icon="/system/icons/sysmon_32.png"
 -- AIOS v2 — Live System Monitor
 
 local AppWindow = require("appwindow")

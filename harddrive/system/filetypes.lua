@@ -35,11 +35,11 @@ local type_to_icon = {
 
 -- Category -> app path for opening (nil = no handler)
 local type_to_app = {
-    text  = "/apps/edit.lua",
-    lua   = "/apps/edit.lua",
-    image = "/apps/imageview.lua",
-    cobj  = "/apps/modelview.lua",
-    audio = "/apps/music.lua",
+    text  = "/apps/edit/main.lua",
+    lua   = "/apps/edit/main.lua",
+    image = "/apps/imageview/main.lua",
+    cobj  = "/apps/modelview/main.lua",
+    audio = "/apps/music/main.lua",
 }
 
 function filetypes.get_type(filename)

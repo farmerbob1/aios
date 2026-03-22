@@ -1,4 +1,3 @@
--- @app name="3D Viewer" icon="/system/icons/cobj_32.png"
 -- AIOS v2 — 3D Model Viewer
 local AppWindow = require("appwindow")
 

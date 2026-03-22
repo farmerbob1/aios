@@ -332,7 +332,7 @@ function wm._handle_taskbar_click(event)
 
     -- Stats widget
     if mx >= ix and mx < ix + stats_w then
-        aios.task.spawn("/apps/sysmon.lua", "System Monitor")
+        aios.task.spawn("/apps/sysmon/main.lua", "System Monitor")
         return
     end
 end
@@ -563,39 +563,56 @@ end
 
 function wm._scan_apps()
     app_list = {}
-    -- Recursively scan entire filesystem for .lua files with @app metadata
-    local function scan_dir(dir)
-        local ok, entries = pcall(aios.io.listdir, dir)
-        if not ok or not entries then return end
-        for _, entry in ipairs(entries) do
-            if not entry.name or entry.name == "." or entry.name == ".." then
-                -- skip
-            else
-                local path = (dir == "/") and ("/" .. entry.name) or (dir .. "/" .. entry.name)
-                if entry.is_dir then
-                    scan_dir(path)
-                elseif entry.name:match("%.lua$") then
-                    local fok, fd = pcall(aios.io.open, path, "r")
-                    if fok and fd then
-                        local line = aios.io.read(fd, 256)
-                        aios.io.close(fd)
-                        if line then
-                            local app_name = line:match('^%-%- @app name="([^"]+)"')
-                            if app_name then
-                                local app_icon = line:match('icon="([^"]+)"')
-                                local tex = -1
-                                if app_icon then
-                                    tex = chaos_gl.load_texture(app_icon)
-                                end
-                                app_list[#app_list + 1] = {name = app_name, path = path, tex = tex}
-                            end
+
+    local ok, entries = pcall(aios.io.listdir, "/apps")
+    if not ok or not entries then return end
+
+    -- Phase 1: Scan /apps/*/manifest.lua (directory-based apps)
+    for _, entry in ipairs(entries) do
+        if entry.is_dir and entry.name ~= "." and entry.name ~= ".." then
+            local manifest_path = "/apps/" .. entry.name .. "/manifest.lua"
+            local mok, manifest_fn = pcall(loadfile, manifest_path)
+            if mok and manifest_fn then
+                local rok, manifest = pcall(manifest_fn)
+                if rok and type(manifest) == "table" and manifest.name and manifest.entry then
+                    local entry_path = "/apps/" .. entry.name .. "/" .. manifest.entry
+                    local tex = -1
+                    if manifest.icon then
+                        tex = chaos_gl.load_texture(manifest.icon)
+                    end
+                    app_list[#app_list + 1] = {
+                        name = manifest.name,
+                        path = entry_path,
+                        tex = tex,
+                        app_dir = "/apps/" .. entry.name,
+                    }
+                end
+            end
+        end
+    end
+
+    -- Phase 2: Backward compat — flat /apps/*.lua with @app tags
+    for _, entry in ipairs(entries) do
+        if not entry.is_dir and entry.name:match("%.lua$") then
+            local path = "/apps/" .. entry.name
+            local fok, fd = pcall(aios.io.open, path, "r")
+            if fok and fd then
+                local line = aios.io.read(fd, 256)
+                aios.io.close(fd)
+                if line then
+                    local app_name = line:match('^%-%- @app name="([^"]+)"')
+                    if app_name then
+                        local app_icon = line:match('icon="([^"]+)"')
+                        local tex = -1
+                        if app_icon then
+                            tex = chaos_gl.load_texture(app_icon)
                         end
+                        app_list[#app_list + 1] = {name = app_name, path = path, tex = tex}
                     end
                 end
             end
         end
     end
-    scan_dir("/")
 end
 
 function wm._toggle_app_menu()

@@ -137,6 +137,8 @@ C_SOURCES = \
     $(KERNDIR)/kaos/kaos_loader.c \
     $(KERNDIR)/kaos/kaos_sym.c \
     $(KERNDIR)/kaos/kaos_io_wrappers.c \
+    $(KERNDIR)/compression/lz4.c \
+    $(KERNDIR)/compression/cpk.c \
     $(INCDIR)/string.c \
     $(RENDDIR)/compositor.c
 
@@ -180,7 +182,8 @@ LUA_KERNEL_SOURCES = \
     $(KERNDIR)/lua/lua_aios_debug.c \
     $(KERNDIR)/lua/lua_chaosgl.c \
     $(KERNDIR)/lua/lua_aios_wm.c \
-    $(KERNDIR)/lua/lua_aios_audio.c
+    $(KERNDIR)/lua/lua_aios_audio.c \
+    $(KERNDIR)/lua/lua_aios_cpk.c
 
 # ===== lwIP sources =====
 

@@ -1,4 +1,3 @@
--- @app name="Editor" icon="/system/icons/edit_32.png"
 -- AIOS v2 — Text Editor
 local AppWindow = require("appwindow")
 

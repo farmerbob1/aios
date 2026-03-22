@@ -16,6 +16,7 @@ extern void lua_state_destroy(lua_State *L);
 
 /* External from lua_loader.c */
 extern int aios_dofile_internal(lua_State *L, const char *path);
+extern void aios_set_app_base_dir(lua_State *L, const char *dir);
 
 /* Per-task Lua context */
 #define LUA_TASK_MAX_ARGS  8
@@ -55,6 +56,23 @@ static void lua_task_entry_wrapper(void) {
     }
     ctx->L = L;
     self->lua_state = L;
+
+    /* Derive app base directory from script path (strip filename) */
+    {
+        const char *last_slash = NULL;
+        for (const char *p = ctx->script_path; *p; p++) {
+            if (*p == '/') last_slash = p;
+        }
+        if (last_slash && last_slash != ctx->script_path) {
+            char app_dir[256];
+            size_t dir_len = (size_t)(last_slash - ctx->script_path);
+            if (dir_len < sizeof(app_dir)) {
+                memcpy(app_dir, ctx->script_path, dir_len);
+                app_dir[dir_len] = '\0';
+                aios_set_app_base_dir(L, app_dir);
+            }
+        }
+    }
 
     /* Set global 'arg' table from spawn arguments */
     if (ctx->argc > 0) {

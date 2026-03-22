@@ -1,4 +1,3 @@
--- @app name="Files" icon="/system/icons/files_32.png"
 -- AIOS v2 — File Browser Application
 
 local filetypes = require("filetypes")
@@ -41,6 +40,7 @@ local function format_size(bytes)
 end
 
 local function get_type(entry)
+    if entry.is_app then return "App" end
     return filetypes.get_type_label(entry.name, entry.is_dir)
 end
 
@@ -63,11 +63,41 @@ local function do_sort()
     end)
 end
 
+local function build_path(name)
+    if current_path == "/" then return "/" .. name end
+    return current_path .. "/" .. name
+end
+
+-- Cache of loaded app icon textures (keyed by icon path)
+local app_tex_cache = {}
+
+local function load_app_icon(icon_path)
+    if not icon_path then return -1 end
+    if app_tex_cache[icon_path] then return app_tex_cache[icon_path] end
+    local tex = chaos_gl.load_texture(icon_path)
+    app_tex_cache[icon_path] = tex
+    return tex
+end
+
 local function refresh()
     entries = {}
     local ok, list = pcall(aios.io.listdir, current_path)
     if ok and list then
         for _, e in ipairs(list) do
+            -- Check if directory is a packaged app
+            if e.is_dir and e.name ~= "." and e.name ~= ".." then
+                local dir_path = build_path(e.name)
+                local manifest_path = dir_path .. "/manifest.lua"
+                local mok, mfn = pcall(loadfile, manifest_path)
+                if mok and mfn then
+                    local rok, manifest = pcall(mfn)
+                    if rok and type(manifest) == "table" and manifest.name then
+                        e.is_app = true
+                        e.app_name = manifest.name
+                        e.app_icon_tex = load_app_icon(manifest.icon)
+                    end
+                end
+            end
             entries[#entries + 1] = e
         end
     end
@@ -95,13 +125,9 @@ local function go_up()
     navigate(parent)
 end
 
-local function build_path(name)
-    if current_path == "/" then return "/" .. name end
-    return current_path .. "/" .. name
-end
 
 local function is_app_file(fpath)
-    -- Check for "-- @app" header marker
+    -- Check for "-- @app" header marker (legacy flat-file apps)
     local ok, content = pcall(aios.io.readfile, fpath)
     if ok and content and content:sub(1, 6) == "-- @ap" then
         return true
@@ -109,15 +135,40 @@ local function is_app_file(fpath)
     return false
 end
 
+local function is_app_dir(dir_path)
+    -- Check if directory contains manifest.lua (packaged app)
+    local ok, items = pcall(aios.io.listdir, dir_path)
+    if ok and items then
+        for _, e in ipairs(items) do
+            if e.name == "manifest.lua" then return true end
+        end
+    end
+    return false
+end
+
 local function open_entry(entry)
     if entry.is_dir then
-        navigate(build_path(entry.name))
+        local dir_path = build_path(entry.name)
+        -- Check if it's a packaged app directory
+        if is_app_dir(dir_path) then
+            local manifest_path = dir_path .. "/manifest.lua"
+            local mok, mfn = pcall(loadfile, manifest_path)
+            if mok and mfn then
+                local rok, manifest = pcall(mfn)
+                if rok and type(manifest) == "table" and manifest.entry then
+                    local entry_path = dir_path .. "/" .. manifest.entry
+                    aios.task.spawn(entry_path, manifest.name or entry.name)
+                    return
+                end
+            end
+        end
+        navigate(dir_path)
         return
     end
 
     local fpath = build_path(entry.name)
 
-    -- Check if it's a Lua app first
+    -- Check if it's a legacy Lua app first
     if entry.name:match("%.lua$") and is_app_file(fpath) then
         local app_name = entry.name:gsub("%.lua$", "")
         app_name = app_name:sub(1,1):upper() .. app_name:sub(2)
@@ -209,15 +260,28 @@ local function draw_list_view(sw, sh)
             end
 
             -- Icon
-            if entry.is_dir then
+            if entry.is_app and entry.app_icon_tex and entry.app_icon_tex >= 0 then
+                local iw, ih = chaos_gl.texture_get_size(entry.app_icon_tex)
+                local scale = math.min(16 / iw, 16 / ih)
+                local dw = math.floor(iw * scale)
+                local dh = math.floor(ih * scale)
+                local ix = 4 + (16 - dw) // 2
+                local iy = y + 2 + (16 - dh) // 2
+                if chaos_gl.texture_has_alpha(entry.app_icon_tex) then
+                    chaos_gl.blit_alpha(ix, iy, iw, ih, entry.app_icon_tex)
+                else
+                    chaos_gl.blit(ix, iy, iw, ih, entry.app_icon_tex)
+                end
+            elseif entry.is_dir then
                 chaos_gl.rect_rounded(4, y + 2, 16, 16, 2, 0x0000A8CC)
                 chaos_gl.text(7, y + 3, "D", 0x00FFFFFF, 0, 0)
             else
                 chaos_gl.rect_rounded(4, y + 2, 16, 16, 2, 0x00888888)
             end
 
-            -- Name
-            chaos_gl.text(24, y + 4, entry.name, text_c, 0, 0)
+            -- Name (show app display name for app dirs)
+            local display_name = entry.is_app and entry.app_name or entry.name
+            chaos_gl.text(24, y + 4, display_name, text_c, 0, 0)
 
             -- Size
             if not entry.is_dir then
@@ -227,7 +291,7 @@ local function draw_list_view(sw, sh)
             end
 
             -- Type
-            local tp = get_type(entry)
+            local tp = entry.is_app and "App" or get_type(entry)
             chaos_gl.text(sw - 80, y + 4, tp, sec_c, 0, 0)
         end
     end
@@ -255,7 +319,16 @@ local function draw_grid_view(sw, sh)
             end
 
             -- Icon
-            if entry.is_dir then
+            if entry.is_app and entry.app_icon_tex and entry.app_icon_tex >= 0 then
+                local iw, ih = chaos_gl.texture_get_size(entry.app_icon_tex)
+                local ix = cx + (48 - iw) // 2
+                local iy = cy + (40 - ih) // 2
+                if chaos_gl.texture_has_alpha(entry.app_icon_tex) then
+                    chaos_gl.blit_alpha(ix, iy, iw, ih, entry.app_icon_tex)
+                else
+                    chaos_gl.blit(ix, iy, iw, ih, entry.app_icon_tex)
+                end
+            elseif entry.is_dir then
                 chaos_gl.rect_rounded(cx, cy, 48, 40, 4, 0x0000A8CC)
                 local dw = chaos_gl.text_width("DIR")
                 chaos_gl.text(cx + (48 - dw) // 2, cy + 13, "DIR", 0x00FFFFFF, 0, 0)
@@ -266,8 +339,8 @@ local function draw_grid_view(sw, sh)
                 chaos_gl.text(cx + (48 - ew) // 2, cy + 13, ext, 0x00FFFFFF, 0, 0)
             end
 
-            -- Label
-            local name = entry.name
+            -- Label (show app display name for app dirs)
+            local name = entry.is_app and entry.app_name or entry.name
             if #name > 10 then name = name:sub(1, 9) .. ".." end
             local nw = chaos_gl.text_width(name)
             local lbl_x = col * GRID_CELL_W + (GRID_CELL_W - nw) // 2

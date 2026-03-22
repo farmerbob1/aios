@@ -1,4 +1,3 @@
--- @app name="Terminal" icon="/system/icons/terminal_32.png"
 -- AIOS v2 — Terminal / Lua REPL
 local AppWindow = require("appwindow")
 local win = AppWindow.new("Terminal", 520, 380, {x=120, y=80})

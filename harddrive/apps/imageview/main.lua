@@ -1,4 +1,3 @@
--- @app name="Image Viewer" icon="/system/icons/image_32.png"
 -- AIOS v2 — Image Viewer
 local AppWindow = require("appwindow")
 

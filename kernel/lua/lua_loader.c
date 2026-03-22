@@ -98,12 +98,44 @@ static int aios_loadfile(lua_State *L) {
     return 1;  /* compiled chunk */
 }
 
+/* Set the app base directory for require() resolution.
+ * Stored in the Lua registry so each lua_State has its own. */
+void aios_set_app_base_dir(lua_State *L, const char *dir) {
+    if (dir) {
+        lua_pushstring(L, dir);
+    } else {
+        lua_pushnil(L);
+    }
+    lua_setfield(L, LUA_REGISTRYINDEX, "aios_app_base_dir");
+}
+
+/* Try to load modname from a given directory prefix.
+ * Returns 1 (chunk on stack) on success, 0 if not found. */
+static int try_load_from(lua_State *L, const char *prefix, size_t plen,
+                         const char *modname, size_t mlen) {
+    char path[256];
+    if (plen + mlen + 4 >= sizeof(path)) return 0;
+    memcpy(path, prefix, plen);
+    memcpy(path + plen, modname, mlen);
+    memcpy(path + plen + mlen, ".lua", 5);
+
+    char *buf = NULL;
+    int len = aios_load_file_from_chaosfs(path, &buf);
+    if (len >= 0) {
+        int err = luaL_loadbuffer(L, buf, (size_t)len, path);
+        kfree(buf);
+        if (err == 0) return 1;
+        lua_error(L);
+    }
+    return 0;
+}
+
 /* Custom searcher for require(): searches ChaosFS paths */
 static int aios_searcher(lua_State *L) {
     const char *modname = luaL_checkstring(L, 1);
-    char path[256];
+    size_t mlen = strlen(modname);
 
-    /* Search order */
+    /* Search order for global prefixes */
     static const char *prefixes[] = {
         "/system/ui/",
         "/system/layout/",
@@ -126,23 +158,30 @@ static int aios_searcher(lua_State *L) {
         }
     }
 
-    /* Try each prefix + modname + .lua */
-    for (const char **p = prefixes; *p; p++) {
-        size_t plen = strlen(*p);
-        size_t mlen = strlen(modname);
-        if (plen + mlen + 4 >= sizeof(path)) continue;
-        memcpy(path, *p, plen);
-        memcpy(path + plen, modname, mlen);
-        memcpy(path + plen + mlen, ".lua", 5);
-
-        char *buf = NULL;
-        int len = aios_load_file_from_chaosfs(path, &buf);
-        if (len >= 0) {
-            int err = luaL_loadbuffer(L, buf, (size_t)len, path);
-            kfree(buf);
-            if (err == 0) return 1;
-            return lua_error(L);
+    /* Try app base directory first (if set) */
+    lua_getfield(L, LUA_REGISTRYINDEX, "aios_app_base_dir");
+    if (lua_isstring(L, -1)) {
+        size_t blen;
+        const char *base = lua_tolstring(L, -1, &blen);
+        /* Build: base + "/" + modname + ".lua" */
+        char dir_prefix[256];
+        if (blen + 1 < sizeof(dir_prefix)) {
+            memcpy(dir_prefix, base, blen);
+            dir_prefix[blen] = '/';
+            lua_pop(L, 1);
+            if (try_load_from(L, dir_prefix, blen + 1, modname, mlen))
+                return 1;
+        } else {
+            lua_pop(L, 1);
         }
+    } else {
+        lua_pop(L, 1);
+    }
+
+    /* Try each global prefix + modname + .lua */
+    for (const char **p = prefixes; *p; p++) {
+        if (try_load_from(L, *p, strlen(*p), modname, mlen))
+            return 1;
     }
 
     /* Not found */

@@ -1,4 +1,3 @@
--- @app name="Settings" icon="/system/icons/settings_32.png"
 -- AIOS v2 — Settings Application
 local AppWindow = require("appwindow")
 local win = AppWindow.new("Settings", 450, 350, {x=150, y=100})

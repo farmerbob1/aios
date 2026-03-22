@@ -1,4 +1,3 @@
--- @app name="Web Server" icon="/system/icons/globe_32.png"
 -- AIOS v2 — Static File HTTP Web Server
 local AppWindow = require("appwindow")
 -- Serves files from /apps/webserver/www/

@@ -149,6 +149,14 @@ while running do
             local target = wm.route_keyboard(event)
             if target then
                 aios.wm.push_event(target, event)
+                -- Generate EVENT_KEY_CHAR for printable characters
+                if event.type == EVENT_KEY_DOWN and event.char and event.char ~= "" then
+                    aios.wm.push_event(target, {
+                        type = EVENT_KEY_CHAR,
+                        char = event.char,
+                        key = event.key,
+                    })
+                end
             end
         else
             local target = wm.route_mouse(event)

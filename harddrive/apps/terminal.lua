@@ -52,6 +52,7 @@ local function execute(cmd)
     -- Built-in commands
     if cmd == "help" then
         add_output("Commands: ls, cat, cd, mkdir, rm, mem, clear, help")
+        add_output("Network:  ifconfig, ping, get, dns")
         add_output("Or type any Lua expression")
     elseif cmd == "clear" then
         lines = {}
@@ -129,6 +130,77 @@ local function execute(cmd)
             local ok, err = pcall(aios.io.remove, path)
             if not ok then add_error("rm: " .. tostring(err)) end
         end
+    elseif cmd == "ifconfig" then
+        local info = aios.net.ifconfig()
+        if info then
+            add_output("  IP:   " .. (info.ip or "none"))
+            add_output("  Mask: " .. (info.mask or "none"))
+            add_output("  GW:   " .. (info.gw or "none"))
+            add_output("  MAC:  " .. (info.mac or "none"))
+        else
+            add_error("ifconfig: network not available")
+        end
+    elseif cmd:match("^ping%s+") then
+        local host = cmd:match("^ping%s+(.+)")
+        if host then
+            add_output("Resolving " .. host .. "...")
+            local ip, err = aios.net.dns_resolve(host, 5000)
+            if ip then
+                add_output("  " .. host .. " resolved to " .. ip)
+                -- TCP connect test (no ICMP raw socket, so we test reachability)
+                add_output("  Connecting to " .. ip .. ":80...")
+                local sock, cerr = aios.net.tcp_connect(ip, 80, 3000)
+                if sock then
+                    aios.net.tcp_close(sock)
+                    add_output("  " .. host .. " is reachable (TCP:80 open)", 0x0044FF44)
+                else
+                    add_output("  " .. host .. " TCP:80 " .. (cerr or "unreachable"), 0x00FFAA00)
+                end
+            else
+                add_error("ping: " .. (err or "resolve failed"))
+            end
+        end
+    elseif cmd:match("^dns%s+") then
+        local host = cmd:match("^dns%s+(.+)")
+        if host then
+            local ip, err = aios.net.dns_resolve(host, 5000)
+            if ip then
+                add_output("  " .. host .. " = " .. ip)
+            else
+                add_error("dns: " .. (err or "failed"))
+            end
+        end
+    elseif cmd:match("^get%s+") then
+        local url = cmd:match("^get%s+(.+)")
+        if url then
+            -- Add http:// if no scheme
+            if not url:match("^https?://") then
+                url = "http://" .. url
+            end
+            add_output("Fetching " .. url .. "...")
+            local ok, http = pcall(require, "http")
+            if not ok then
+                add_error("get: http library not found")
+            else
+                local body, status, headers = http.get(url, 10000)
+                if body then
+                    add_output("  Status: " .. tostring(status), 0x0044FF44)
+                    -- Show first 20 lines of body
+                    local line_count = 0
+                    for line in body:gmatch("[^\n]*") do
+                        if line_count >= 20 then
+                            add_output("  ... (truncated)")
+                            break
+                        end
+                        add_output("  " .. line)
+                        line_count = line_count + 1
+                    end
+                    add_output("  (" .. tostring(#body) .. " bytes total)")
+                else
+                    add_error("get: " .. tostring(headers or status or "failed"))
+                end
+            end
+        end
     else
         -- Lua eval
         local fn, err = load("return " .. cmd)
@@ -150,8 +222,16 @@ local function execute(cmd)
     end
 end
 
+local blink_timer = 0
+local cursor_visible = true
+
 local running = true
 while running do
+    blink_timer = blink_timer + 1
+    if blink_timer >= 30 then  -- toggle every ~500ms (30 frames at 60fps)
+        cursor_visible = not cursor_visible
+        blink_timer = 0
+    end
     chaos_gl.surface_bind(surface)
     local bg = 0x001A1A2E
     local text_c = 0x00CCCCCC
@@ -182,14 +262,31 @@ while running do
     end
     chaos_gl.pop_clip()
 
+    -- Scrollbar
+    local total_lines = #lines
+    if total_lines > max_visible then
+        local sb_x = 520 - 8
+        local sb_h = output_h
+        local thumb_h = math.max(20, math.floor(sb_h * max_visible / total_lines))
+        local max_scroll = total_lines - max_visible
+        local scroll_frac = max_scroll > 0 and (1 - scroll_y / max_scroll) or 1
+        local thumb_y = output_y + math.floor((sb_h - thumb_h) * scroll_frac)
+        -- Track
+        chaos_gl.rect(sb_x, output_y, 6, sb_h, 0x00333344)
+        -- Thumb
+        chaos_gl.rect(sb_x, thumb_y, 6, thumb_h, 0x00666688)
+    end
+
     -- Input line
     local input_y = 380 - 24
     chaos_gl.rect(0, input_y, 520, 24, 0x00222244)
     chaos_gl.text(4, input_y + 4, "> " .. input_line, prompt_c, 0, 0)
 
     -- Cursor blink
-    local cursor_x = 4 + chaos_gl.text_width("> " .. input_line:sub(1, cursor_pos))
-    chaos_gl.rect(cursor_x, input_y + 2, 2, 16, 0x00FFFFFF)
+    if cursor_visible then
+        local cursor_x = 4 + chaos_gl.text_width("> " .. input_line:sub(1, cursor_pos))
+        chaos_gl.rect(cursor_x, input_y + 2, 2, 16, 0x00FFFFFF)
+    end
 
     chaos_gl.surface_present(surface)
 
@@ -197,6 +294,8 @@ while running do
     local event = aios.wm.poll_event(surface)
     while event do
         if event.type == EVENT_KEY_DOWN then
+            cursor_visible = true
+            blink_timer = 0
             if event.key == 1 then -- Escape
                 running = false
             elseif event.key == 28 then -- Enter

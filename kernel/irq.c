@@ -22,7 +22,9 @@ extern void irq10(void); extern void irq11(void);
 extern void irq12(void); extern void irq13(void);
 extern void irq14(void); extern void irq15(void);
 
-static void (*irq_handlers[16])(void);
+#define IRQ_MAX_SHARED 4
+static void (*irq_handlers[16][IRQ_MAX_SHARED])(void);
+static int irq_handler_count[16];
 
 static void pic_remap(void) {
     uint8_t mask1 = inb(PIC1_DATA);
@@ -65,13 +67,19 @@ void irq_init(void) {
 
     for (int i = 0; i < 16; i++) {
         idt_set_gate((uint8_t)(32 + i), (uint32_t)stubs[i], 0x08, 0x8E);
-        irq_handlers[i] = NULL;
+        for (int j = 0; j < IRQ_MAX_SHARED; j++)
+            irq_handlers[i][j] = NULL;
+        irq_handler_count[i] = 0;
     }
 }
 
 void irq_register_handler(int irq, void (*handler)(void)) {
-    if (irq >= 0 && irq < 16) {
-        irq_handlers[irq] = handler;
+    if (irq >= 0 && irq < 16 && handler) {
+        int n = irq_handler_count[irq];
+        if (n < IRQ_MAX_SHARED) {
+            irq_handlers[irq][n] = handler;
+            irq_handler_count[irq] = n + 1;
+        }
     }
 }
 
@@ -117,9 +125,12 @@ void irq_common_handler(struct registers* regs) {
     /* Collect entropy from IRQ timing */
     entropy_add_irq((uint8_t)irq_num);
 
-    /* Then call handler */
-    if (irq_num >= 0 && irq_num < 16 && irq_handlers[irq_num]) {
-        irq_handlers[irq_num]();
+    /* Then call all registered handlers for this IRQ (shared IRQ support) */
+    if (irq_num >= 0 && irq_num < 16) {
+        for (int i = 0; i < irq_handler_count[irq_num]; i++) {
+            if (irq_handlers[irq_num][i])
+                irq_handlers[irq_num][i]();
+        }
     }
 }
 

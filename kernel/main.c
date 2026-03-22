@@ -153,6 +153,10 @@ void kernel_main(struct boot_info* info) {
     netbuf_init();
     netif_bridge_init();
 
+    /* ── Audio infrastructure (before KAOS, so AC97 module can use it) */
+    extern void audio_bridge_init(void);
+    audio_bridge_init();
+
     /* ── Phase 6: KAOS ──────────────────────────────── */
     r = kaos_init();
     boot_log("KAOS module system", r);

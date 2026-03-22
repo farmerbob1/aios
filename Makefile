@@ -111,6 +111,10 @@ C_SOURCES = \
     $(DRVDIR)/pci.c \
     $(KERNDIR)/net/netbuf.c \
     $(KERNDIR)/net/netif_bridge.c \
+    $(KERNDIR)/audio/audio_bridge.c \
+    $(KERNDIR)/audio/wav_decode.c \
+    $(KERNDIR)/audio/resample.c \
+    $(KERNDIR)/audio/midi_parse.c \
     $(KERNDIR)/chaos/chaos_block.c \
     $(KERNDIR)/chaos/chaos_alloc.c \
     $(KERNDIR)/chaos/chaos_inode.c \
@@ -175,7 +179,8 @@ LUA_KERNEL_SOURCES = \
     $(KERNDIR)/lua/lua_aios_task.c \
     $(KERNDIR)/lua/lua_aios_debug.c \
     $(KERNDIR)/lua/lua_chaosgl.c \
-    $(KERNDIR)/lua/lua_aios_wm.c
+    $(KERNDIR)/lua/lua_aios_wm.c \
+    $(KERNDIR)/lua/lua_aios_audio.c
 
 # ===== lwIP sources =====
 
@@ -232,11 +237,26 @@ LWIP_KERNEL_OBJECTS = $(patsubst $(KERNDIR)/net/%.c,$(BUILDDIR)/$(KERNDIR)/net/%
 BSSL_VENDOR_OBJECTS = $(patsubst $(BSSLDIR)/%.c,$(BUILDDIR)/$(BSSLDIR)/%.o,$(BSSL_VENDOR_SOURCES))
 BSSL_KERNEL_OBJECTS = $(patsubst $(KERNDIR)/net/%.c,$(BUILDDIR)/$(KERNDIR)/net/%.o,$(BSSL_KERNEL_SOURCES))
 
+# ===== Audio decoder sources (special CFLAGS) =====
+
+# minimp3 — no SSE (uses x87 float), suppress vendor warnings
+MP3_CFLAGS = -ffreestanding -nostdlib -fno-builtin \
+             -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 \
+             -D__AIOS_KERNEL__ -Ivendor/minimp3 -Iinclude/libc -I. -w
+
+MP3_OBJECT = $(BUILDDIR)/$(KERNDIR)/audio/mp3_decode.o
+
+# TinySoundFont — SSE2 for float math, only called from task context
+TSF_CFLAGS = $(RENDERER_CFLAGS) -Ivendor/tsf -Iinclude/libc -I. -w
+
+TSF_OBJECT = $(BUILDDIR)/$(KERNDIR)/audio/midi_render.o
+
 ALL_OBJECTS = $(C_OBJECTS) $(RENDERER_OBJECTS) $(ASM_OBJECTS) \
               $(LUA_VENDOR_OBJECTS) $(LUA_KERNEL_OBJECTS) \
               $(LUA_MATH_OBJECT) $(LUA_ASM_OBJECT) \
               $(LWIP_VENDOR_OBJECTS) $(LWIP_KERNEL_OBJECTS) \
-              $(BSSL_VENDOR_OBJECTS) $(BSSL_KERNEL_OBJECTS)
+              $(BSSL_VENDOR_OBJECTS) $(BSSL_KERNEL_OBJECTS) \
+              $(MP3_OBJECT) $(TSF_OBJECT)
 
 # Module .kaos files (compiled from modules/*.c)
 MODULE_SOURCES = $(wildcard $(MODDIR)/*.c)
@@ -291,6 +311,18 @@ $(BUILDDIR)/$(KERNDIR)/net/bearssl_port.o: $(KERNDIR)/net/bearssl_port.c
 $(BUILDDIR)/$(KERNDIR)/net/trust_anchors.o: $(KERNDIR)/net/trust_anchors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(BSSL_KERN_CFLAGS) -c $< -o $@
+
+# ===== Audio decoder compilation rules =====
+
+# minimp3 wrapper — special CFLAGS (no SSE, vendor header warnings suppressed)
+$(BUILDDIR)/$(KERNDIR)/audio/mp3_decode.o: $(KERNDIR)/audio/mp3_decode.c
+	@mkdir -p $(dir $@)
+	$(CC) $(MP3_CFLAGS) -c $< -o $@
+
+# TinySoundFont wrapper — SSE2 for float math
+$(BUILDDIR)/$(KERNDIR)/audio/midi_render.o: $(KERNDIR)/audio/midi_render.c
+	@mkdir -p $(dir $@)
+	$(CC) $(TSF_CFLAGS) -c $< -o $@
 
 # ===== lwIP compilation rules (must be before generic rules) =====
 
@@ -410,6 +442,8 @@ run: $(BUILDDIR)/os.img
 		-drive format=raw,file=$(BUILDDIR)/os.img \
 		-netdev user,id=net0,hostfwd=tcp::9090-:9090 \
 		-device e1000,netdev=net0 \
+		-device AC97,audiodev=audio0 \
+		-audiodev sdl,id=audio0,in.voices=0 \
 		-serial stdio \
 		-no-reboot \
 		-no-shutdown
@@ -423,6 +457,8 @@ run-debug: $(BUILDDIR)/os.img
 		-drive format=raw,file=$(BUILDDIR)/os.img \
 		-netdev user,id=net0,hostfwd=tcp::9090-:9090 \
 		-device e1000,netdev=net0 \
+		-device AC97,audiodev=audio0 \
+		-audiodev sdl,id=audio0,in.voices=0 \
 		-serial stdio \
 		-no-reboot \
 		-no-shutdown \

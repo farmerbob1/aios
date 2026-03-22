@@ -914,6 +914,78 @@ def main():
             writer.create_file(test_dir_ino, name, data)
             print(f"populate_fs: wrote /test/{name} ({len(data)} bytes)")
 
+        # ── Step 4b: Audio test files (/sounds/) ─────────
+        sounds_ino = writer.ensure_directory("/sounds")
+
+        # Generate test.wav: 1 second 440Hz sine wave, 48kHz stereo 16-bit
+        import struct as struct_mod, math as math_mod
+        wav_rate = 48000
+        wav_duration = 1.0
+        wav_samples = int(wav_rate * wav_duration)
+        wav_pcm = bytearray()
+        for i in range(wav_samples):
+            val = int(32767 * math_mod.sin(2 * math_mod.pi * 440 * i / wav_rate))
+            wav_pcm += struct_mod.pack('<hh', val, val)
+        wav_data_size = len(wav_pcm)
+        wav_header = bytearray()
+        wav_header += b'RIFF'
+        wav_header += struct_mod.pack('<I', 36 + wav_data_size)
+        wav_header += b'WAVE'
+        wav_header += b'fmt '
+        wav_header += struct_mod.pack('<IHHIIHH', 16, 1, 2, wav_rate, wav_rate * 4, 4, 16)
+        wav_header += b'data'
+        wav_header += struct_mod.pack('<I', wav_data_size)
+        test_wav = bytes(wav_header) + bytes(wav_pcm)
+        writer.create_file(sounds_ino, "test.wav", test_wav)
+        print(f"populate_fs: wrote /sounds/test.wav ({len(test_wav)} bytes)")
+
+        # Generate chime.wav: 0.25 second 880Hz
+        chime_samples = int(wav_rate * 0.25)
+        chime_pcm = bytearray()
+        for i in range(chime_samples):
+            fade = 1.0 - (i / chime_samples)
+            val = int(32767 * fade * math_mod.sin(2 * math_mod.pi * 880 * i / wav_rate))
+            chime_pcm += struct_mod.pack('<hh', val, val)
+        chime_data_size = len(chime_pcm)
+        chime_header = bytearray()
+        chime_header += b'RIFF'
+        chime_header += struct_mod.pack('<I', 36 + chime_data_size)
+        chime_header += b'WAVE'
+        chime_header += b'fmt '
+        chime_header += struct_mod.pack('<IHHIIHH', 16, 1, 2, wav_rate, wav_rate * 4, 4, 16)
+        chime_header += b'data'
+        chime_header += struct_mod.pack('<I', chime_data_size)
+        chime_wav = bytes(chime_header) + bytes(chime_pcm)
+        writer.create_file(sounds_ino, "chime.wav", chime_wav)
+        print(f"populate_fs: wrote /sounds/chime.wav ({len(chime_wav)} bytes)")
+
+        # Generate test.mid: C major scale (C4-C5)
+        def make_midi_scale():
+            """Generate a minimal MIDI file with a C major scale."""
+            import struct as s
+            # MThd
+            hdr = b'MThd' + s.pack('>IHhH', 6, 0, 1, 480)  # Format 0, 1 track, 480 tpq
+            # MTrk
+            events = bytearray()
+            # Tempo: 120 BPM = 500000 usec/quarter
+            events += b'\x00\xff\x51\x03' + s.pack('>I', 500000)[1:]
+            # Program change: piano (channel 0, program 0)
+            events += b'\x00\xc0\x00'
+            # Notes: C4=60, D4=62, E4=64, F4=65, G4=67, A4=69, B4=71, C5=72
+            notes = [60, 62, 64, 65, 67, 69, 71, 72]
+            for note in notes:
+                events += b'\x00' + bytes([0x90, note, 100])  # note on, vel=100
+                # 480 ticks = 1 quarter note at 120BPM = 0.5s
+                events += b'\x83\x60' + bytes([0x80, note, 0])  # delta=480, note off
+            # End of track
+            events += b'\x00\xff\x2f\x00'
+            trk = b'MTrk' + s.pack('>I', len(events)) + bytes(events)
+            return hdr + trk
+
+        test_mid = make_midi_scale()
+        writer.create_file(sounds_ino, "test.mid", test_mid)
+        print(f"populate_fs: wrote /sounds/test.mid ({len(test_mid)} bytes)")
+
         # ── Step 5: Compiled .kaos modules ──────────────
         modules_ino = writer.ensure_directory("/system/modules")
 

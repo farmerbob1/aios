@@ -116,5 +116,6 @@ init_result_t lwip_stack_init(void) {
     task_create("lwip_timer", lwip_timer_task, 1);  /* PRIORITY_NORMAL */
 
     serial_printf("[lwip] stack ready (lwIP %s)\n", LWIP_VERSION_STRING);
+
     return INIT_OK;
 }

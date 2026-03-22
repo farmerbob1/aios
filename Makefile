@@ -408,7 +408,7 @@ run: $(BUILDDIR)/os.img
 		-m 256 \
 		-vga std \
 		-drive format=raw,file=$(BUILDDIR)/os.img \
-		-netdev user,id=net0 \
+		-netdev user,id=net0,hostfwd=tcp::9090-:9090 \
 		-device e1000,netdev=net0 \
 		-serial stdio \
 		-no-reboot \
@@ -421,7 +421,7 @@ run-debug: $(BUILDDIR)/os.img
 		-m 256 \
 		-vga std \
 		-drive format=raw,file=$(BUILDDIR)/os.img \
-		-netdev user,id=net0 \
+		-netdev user,id=net0,hostfwd=tcp::9090-:9090 \
 		-device e1000,netdev=net0 \
 		-serial stdio \
 		-no-reboot \

@@ -460,16 +460,34 @@ end
 
 function wm._scan_apps()
     app_list = {}
-    local ok, entries = pcall(aios.io.listdir, "/apps")
-    if not ok or not entries then return end
-    for _, entry in ipairs(entries) do
-        if entry.name and entry.name:match("%.lua$") then
-            local path = "/apps/" .. entry.name
-            local name = entry.name:gsub("%.lua$", "")
-            name = name:sub(1, 1):upper() .. name:sub(2)
-            app_list[#app_list + 1] = {name = name, path = path}
+    -- Recursively scan entire filesystem for .lua files with @app metadata
+    local function scan_dir(dir)
+        local ok, entries = pcall(aios.io.listdir, dir)
+        if not ok or not entries then return end
+        for _, entry in ipairs(entries) do
+            if not entry.name or entry.name == "." or entry.name == ".." then
+                -- skip
+            else
+                local path = (dir == "/") and ("/" .. entry.name) or (dir .. "/" .. entry.name)
+                if entry.is_dir then
+                    scan_dir(path)
+                elseif entry.name:match("%.lua$") then
+                    local fok, fd = pcall(aios.io.open, path, "r")
+                    if fok and fd then
+                        local line = aios.io.read(fd, 256)
+                        aios.io.close(fd)
+                        if line then
+                            local app_name = line:match('^%-%- @app name="([^"]+)"')
+                            if app_name then
+                                app_list[#app_list + 1] = {name = app_name, path = path}
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
+    scan_dir("/")
 end
 
 function wm._toggle_app_menu()

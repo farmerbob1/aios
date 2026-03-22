@@ -86,12 +86,13 @@ function Menu:draw(x, y)
             end
 
             local fg = self:get_style("menu_text") or 0x00FFFFFF
-            chaos_gl.text(8, cy + (self._item_height - 16) // 2, item.label or "", fg, 0, 0)
+            local fh = chaos_gl.font_height(-1)
+            chaos_gl.text(8, cy + (self._item_height - fh) // 2, item.label or "", fg, 0, 0)
 
             if item.shortcut then
                 local sfg = self:get_style("menu_shortcut_text") or 0x00888888
                 local sw = chaos_gl.text_width(item.shortcut)
-                chaos_gl.text(w - sw - 8, cy + (self._item_height - 16) // 2, item.shortcut, sfg, 0, 0)
+                chaos_gl.text(w - sw - 8, cy + (self._item_height - fh) // 2, item.shortcut, sfg, 0, 0)
             end
             cy = cy + self._item_height
         end

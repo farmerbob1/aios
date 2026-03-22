@@ -49,7 +49,8 @@ function TabView:draw(x, y)
         local fg = is_active
             and (self:get_style("tab_text_active") or 0x00FFFFFF)
             or (self:get_style("tab_text") or 0x00AAAAAA)
-        chaos_gl.text(tx + 12, y + (tab_h - 16) // 2, tab.label, fg, 0, 0)
+        local fh = chaos_gl.font_height(-1)
+        chaos_gl.text(tx + 12, y + (tab_h - fh) // 2, tab.label, fg, 0, 0)
 
         tab._x = tx
         tab._w = tw

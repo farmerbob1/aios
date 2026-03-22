@@ -249,7 +249,7 @@ while running do
     -- Output area
     local output_y = 30
     local output_h = 380 - 28 - 24
-    local line_h = 16
+    local line_h = chaos_gl.font_height(-1)
     local max_visible = output_h // line_h
 
     chaos_gl.push_clip(0, output_y, 520, output_h)

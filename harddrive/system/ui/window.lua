@@ -56,7 +56,8 @@ function Window:draw(x, y)
     chaos_gl.rect(x, y, w, th, tbg)
 
     local tfg = self:get_style("titlebar_text") or 0x00FFFFFF
-    chaos_gl.text(x + 8, y + (th - 16) // 2, self.title, tfg, 0, 0)
+    local fh = chaos_gl.font_height(-1)
+    chaos_gl.text(x + 8, y + (th - fh) // 2, self.title, tfg, 0, 0)
 
     -- Close button
     if self.closable then

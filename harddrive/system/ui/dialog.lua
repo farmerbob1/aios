@@ -90,7 +90,8 @@ function Dialog:draw()
     local tbg = self:get_style("titlebar_bg") or 0x003C3C3C
     chaos_gl.rect(0, 0, w, title_h, tbg)
     local tfg = self:get_style("titlebar_text") or 0x00FFFFFF
-    chaos_gl.text(8, (title_h - 16) // 2, self.title, tfg, 0, 0)
+    local fh = chaos_gl.font_height(-1)
+    chaos_gl.text(8, (title_h - fh) // 2, self.title, tfg, 0, 0)
 
     -- Message
     local msg_fg = self:get_style("text_primary") or 0x00FFFFFF
@@ -115,7 +116,8 @@ function Dialog:draw()
         chaos_gl.rect_rounded(btn_x, btn_y, bw, 32, radius, bbg)
         local bfg = self:get_style("button_text") or 0x00FFFFFF
         local tw = chaos_gl.text_width(btn.label)
-        chaos_gl.text(btn_x + (bw - tw) // 2, btn_y + 8, btn.label, bfg, 0, 0)
+        local bfh = chaos_gl.font_height(-1)
+        chaos_gl.text(btn_x + (bw - tw) // 2, btn_y + (32 - bfh) // 2, btn.label, bfg, 0, 0)
 
         btn._x = btn_x
         btn._w = bw

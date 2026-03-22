@@ -14,6 +14,7 @@ int chaos_gl_init(void) {
 
     chaos_gl_surface_init();
     chaos_gl_texture_init();
+    chaos_gl_font_init();
     chaos_gl_shaders_init();
 
     int r = chaos_gl_compositor_init();

@@ -27,7 +27,8 @@ function Label:get_size()
         end
     end
     local tw = chaos_gl.text_width(self.text)
-    return tw > 0 and tw or 8, 16
+    local fh = chaos_gl.font_height(-1)
+    return tw > 0 and tw or 8, fh
 end
 
 function Label:draw(x, y)

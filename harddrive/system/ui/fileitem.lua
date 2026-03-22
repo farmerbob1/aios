@@ -69,9 +69,9 @@ function FileItem:draw(x, y)
 
         local fg = self:get_style("text_primary") or 0x00FFFFFF
         local name_display = self.name
-        local max_chars = (w - 4) // 8
-        if #name_display > max_chars then
-            name_display = name_display:sub(1, max_chars - 3) .. "..."
+        -- Truncate name to fit width
+        while chaos_gl.text_width(name_display) > w - 4 and #name_display > 4 do
+            name_display = name_display:sub(1, #name_display - 4) .. "..."
         end
         local tw = chaos_gl.text_width(name_display)
         local tx = x + (w - tw) // 2
@@ -85,12 +85,13 @@ function FileItem:draw(x, y)
         end
 
         local fg = self:get_style("text_primary") or 0x00FFFFFF
-        chaos_gl.text(x + 28, y + (h - 16) // 2, self.name, fg, 0, 0)
+        local fh = chaos_gl.font_height(-1)
+        chaos_gl.text(x + 28, y + (h - fh) // 2, self.name, fg, 0, 0)
 
         if self.metadata and #self.metadata > 0 then
             local sfg = self:get_style("text_secondary") or 0x00AAAAAA
             local mw = chaos_gl.text_width(self.metadata)
-            chaos_gl.text(x + w - mw - 8, y + (h - 16) // 2, self.metadata, sfg, 0, 0)
+            chaos_gl.text(x + w - mw - 8, y + (h - fh) // 2, self.metadata, sfg, 0, 0)
         end
     end
 end

@@ -2,6 +2,7 @@
 
 #include "2d.h"
 #include "font.h"
+#include "ttf_font.h"
 #include "math.h"
 #include "../include/string.h"
 
@@ -485,6 +486,9 @@ void chaos_gl_blit_alpha(int x, int y, int w, int h, const uint32_t* src, int sr
 /* ── Single character ─────────────────────────────────── */
 
 int chaos_gl_char(int x, int y, char c, uint32_t fg, uint32_t bg, uint32_t flags) {
+    int sys_font = chaos_gl_get_font();
+    if (sys_font >= 0) return chaos_gl_font_char(sys_font, x, y, c, fg);
+
     chaos_gl_surface_t* s = chaos_gl_get_bound_surface();
     if (!s) return CLAUDE_MONO_WIDTH;
     s->stats.draw_calls_2d++;
@@ -513,6 +517,9 @@ int chaos_gl_char(int x, int y, char c, uint32_t fg, uint32_t bg, uint32_t flags
 /* ── Text string ──────────────────────────────────────── */
 
 int chaos_gl_text(int x, int y, const char* str, uint32_t fg, uint32_t bg, uint32_t flags) {
+    int sys_font = chaos_gl_get_font();
+    if (sys_font >= 0) return chaos_gl_font_text(sys_font, x, y, str, fg);
+
     chaos_gl_surface_t* s = chaos_gl_get_bound_surface();
     if (!s) return 0;
     s->stats.draw_calls_2d++;
@@ -531,6 +538,9 @@ int chaos_gl_text(int x, int y, const char* str, uint32_t fg, uint32_t bg, uint3
 /* ── Word-wrapped text ────────────────────────────────── */
 
 int chaos_gl_text_wrapped(int x, int y, int max_w, const char* str, uint32_t fg, uint32_t bg, uint32_t flags) {
+    int sys_font = chaos_gl_get_font();
+    if (sys_font >= 0) return chaos_gl_font_text_wrapped(sys_font, x, y, max_w, str, fg);
+
     chaos_gl_surface_t* s = chaos_gl_get_bound_surface();
     if (!s) return 0;
     s->stats.draw_calls_2d++;
@@ -598,12 +608,17 @@ int chaos_gl_text_wrapped(int x, int y, int max_w, const char* str, uint32_t fg,
 /* ── Text width (unwrapped) ───────────────────────────── */
 
 int chaos_gl_text_width(const char* str) {
+    int sys_font = chaos_gl_get_font();
+    if (sys_font >= 0) return chaos_gl_font_text_width(sys_font, str);
     return (int)strlen(str) * CLAUDE_MONO_WIDTH;
 }
 
 /* ── Text height when word-wrapped ────────────────────── */
 
 int chaos_gl_text_height_wrapped(int max_w, const char* str) {
+    int sys_font = chaos_gl_get_font();
+    if (sys_font >= 0) return chaos_gl_font_text_height_wrapped(sys_font, max_w, str);
+
     int cx = 0;
     int lines = 1;
     int cw = CLAUDE_MONO_WIDTH;

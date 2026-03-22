@@ -84,7 +84,7 @@ while running do
     -- Editor area
     local edit_y = 28
     local edit_h = 420 - 28 - 20
-    local line_h = 16
+    local line_h = chaos_gl.font_height(-1)
     local max_visible = edit_h // line_h
 
     -- Gutter + content

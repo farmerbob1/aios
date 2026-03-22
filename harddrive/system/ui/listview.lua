@@ -60,7 +60,8 @@ function ListView:draw(x, y)
         else
             local fg = self:get_style("text_primary") or 0x00FFFFFF
             local text = tostring(self.items[i])
-            chaos_gl.text(x + 4, iy + (self.item_height - 16) // 2, text, fg, 0, 0)
+            local fh = chaos_gl.font_height(-1)
+            chaos_gl.text(x + 4, iy + (self.item_height - fh) // 2, text, fg, 0, 0)
         end
     end
 

@@ -54,7 +54,8 @@ function Button:draw(x, y)
 
     local tw = chaos_gl.text_width(self.text)
     local tx = x + math.floor((w - tw) / 2)
-    local ty = y + math.floor((h - 16) / 2)
+    local fh = chaos_gl.font_height(-1)
+    local ty = y + math.floor((h - fh) / 2)
     chaos_gl.text(tx, ty, self.text, fg, 0, 0)
 
     if self.focused then

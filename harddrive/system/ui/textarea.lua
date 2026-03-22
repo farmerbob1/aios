@@ -56,12 +56,13 @@ function TextArea:draw(x, y)
     chaos_gl.push_clip(x + pad, y + pad, w - pad * 2, h - pad * 2)
 
     local lines = self:_lines()
-    local visible_lines = (h - pad * 2) // 16
-    local start_line = math.floor(self.scroll_y / 16) + 1
+    local fh = chaos_gl.font_height(-1)
+    local visible_lines = (h - pad * 2) // fh
+    local start_line = math.floor(self.scroll_y / fh) + 1
     local fg = self:get_style("field_text") or 0x00FFFFFF
 
     for i = start_line, math.min(#lines, start_line + visible_lines) do
-        local ly = y + pad + (i - start_line) * 16
+        local ly = y + pad + (i - start_line) * fh
         chaos_gl.text(x + pad, ly, lines[i], fg, 0, 0)
     end
 
@@ -73,10 +74,10 @@ function TextArea:draw(x, y)
         end
         if self._cursor_visible then
             local cl, cc = self:_cursor_line_col()
-            local cx = x + pad + cc * 8
-            local cy = y + pad + (cl - 1) * 16 - self.scroll_y
+            local cx = x + pad + chaos_gl.text_width(lines[cl]:sub(1, cc))
+            local cy = y + pad + (cl - 1) * fh - self.scroll_y
             local cursor_c = self:get_style("field_cursor") or 0x00FFFFFF
-            chaos_gl.line(cx, cy, cx, cy + 15, cursor_c)
+            chaos_gl.line(cx, cy, cx, cy + fh - 1, cursor_c)
         end
     end
 

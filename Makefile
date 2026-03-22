@@ -256,12 +256,17 @@ STB_CFLAGS = $(RENDERER_CFLAGS) -Ivendor/stb -Iinclude/libc -I. -w
 
 STB_OBJECT = $(BUILDDIR)/$(RENDDIR)/stb_image_decode.o
 
+# stb_truetype — SSE2 for float rasterization, suppress vendor warnings
+STBTT_CFLAGS = $(RENDERER_CFLAGS) -Ivendor/stb -Iinclude/libc -I. -w
+
+STBTT_OBJECT = $(BUILDDIR)/$(RENDDIR)/ttf_font.o
+
 ALL_OBJECTS = $(C_OBJECTS) $(RENDERER_OBJECTS) $(ASM_OBJECTS) \
               $(LUA_VENDOR_OBJECTS) $(LUA_KERNEL_OBJECTS) \
               $(LUA_MATH_OBJECT) $(LUA_ASM_OBJECT) \
               $(LWIP_VENDOR_OBJECTS) $(LWIP_KERNEL_OBJECTS) \
               $(BSSL_VENDOR_OBJECTS) $(BSSL_KERNEL_OBJECTS) \
-              $(MP3_OBJECT) $(TSF_OBJECT) $(STB_OBJECT)
+              $(MP3_OBJECT) $(TSF_OBJECT) $(STB_OBJECT) $(STBTT_OBJECT)
 
 # Module .kaos files (compiled from modules/*.c)
 MODULE_SOURCES = $(wildcard $(MODDIR)/*.c)
@@ -333,6 +338,11 @@ $(BUILDDIR)/$(KERNDIR)/audio/midi_render.o: $(KERNDIR)/audio/midi_render.c
 $(BUILDDIR)/$(RENDDIR)/stb_image_decode.o: $(RENDDIR)/stb_image_decode.c
 	@mkdir -p $(dir $@)
 	$(CC) $(STB_CFLAGS) -c $< -o $@
+
+# stb_truetype wrapper — SSE2 for float rasterization
+$(BUILDDIR)/$(RENDDIR)/ttf_font.o: $(RENDDIR)/ttf_font.c
+	@mkdir -p $(dir $@)
+	$(CC) $(STBTT_CFLAGS) -c $< -o $@
 
 # ===== lwIP compilation rules (must be before generic rules) =====
 

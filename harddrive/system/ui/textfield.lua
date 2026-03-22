@@ -43,7 +43,7 @@ function TextField:draw(x, y)
     end
 
     -- Scroll to keep cursor visible
-    local cursor_px = self.cursor_pos * 8
+    local cursor_px = chaos_gl.text_width(display_text:sub(1, self.cursor_pos))
     if cursor_px - self.scroll_offset > inner_w then
         self.scroll_offset = cursor_px - inner_w
     elseif cursor_px < self.scroll_offset then
@@ -53,7 +53,8 @@ function TextField:draw(x, y)
     chaos_gl.push_clip(x + pad, y, inner_w, h)
 
     local text_x = x + pad - self.scroll_offset
-    local text_y = y + (h - 16) // 2
+    local fh = chaos_gl.font_height(-1)
+    local text_y = y + (h - fh) // 2
 
     if #display_text == 0 and not self.focused then
         local pc = self:get_style("text_placeholder") or 0x00666666
@@ -71,7 +72,7 @@ function TextField:draw(x, y)
             self._cursor_visible = not self._cursor_visible
         end
         if self._cursor_visible then
-            local cx = text_x + self.cursor_pos * 8
+            local cx = text_x + chaos_gl.text_width(display_text:sub(1, self.cursor_pos))
             local cc = self:get_style("field_cursor") or 0x00FFFFFF
             chaos_gl.line(cx, y + 4, cx, y + h - 4, cc)
         end
@@ -86,7 +87,15 @@ function TextField:on_input(event)
             core.set_focus(self)
             local pad = self:get_style("field_padding") or 6
             local rel_x = event.mouse_x - self._layout_x - pad + self.scroll_offset
-            self.cursor_pos = math.max(0, math.min(#self.text, math.floor(rel_x / 8 + 0.5)))
+            -- Find cursor position closest to click
+            local best = 0
+            for i = 0, #self.text do
+                local tw = chaos_gl.text_width(self.text:sub(1, i))
+                if math.abs(tw - rel_x) < math.abs(chaos_gl.text_width(self.text:sub(1, best)) - rel_x) then
+                    best = i
+                end
+            end
+            self.cursor_pos = best
             self._blink_counter = 0
             self._cursor_visible = true
             return true

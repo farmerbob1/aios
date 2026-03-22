@@ -279,6 +279,96 @@ static int l_char(lua_State *L) {
     return 1;
 }
 
+/* ── TTF Fonts ───────────────────────────────────────── */
+
+static int l_font_load(lua_State *L) {
+    const char *path = luaL_checkstring(L, 1);
+    float size = (float)luaL_checknumber(L, 2);
+    int handle = chaos_gl_font_load(path, size);
+    lua_pushinteger(L, handle);
+    return 1;
+}
+
+static int l_font_free(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    chaos_gl_font_free(handle);
+    return 0;
+}
+
+static int l_set_font(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    chaos_gl_set_font(handle);
+    return 0;
+}
+
+static int l_get_font(lua_State *L) {
+    lua_pushinteger(L, chaos_gl_get_font());
+    return 1;
+}
+
+static int l_font_text(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    int x = (int)luaL_checkinteger(L, 2);
+    int y = (int)luaL_checkinteger(L, 3);
+    const char *str = luaL_checkstring(L, 4);
+    uint32_t fg = (uint32_t)luaL_checkinteger(L, 5);
+    int result = chaos_gl_font_text(handle, x, y, str, fg);
+    lua_pushinteger(L, result);
+    return 1;
+}
+
+static int l_font_text_width(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    const char *str = luaL_checkstring(L, 2);
+    lua_pushinteger(L, chaos_gl_font_text_width(handle, str));
+    return 1;
+}
+
+static int l_font_text_wrapped(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    int x = (int)luaL_checkinteger(L, 2);
+    int y = (int)luaL_checkinteger(L, 3);
+    int max_w = (int)luaL_checkinteger(L, 4);
+    const char *str = luaL_checkstring(L, 5);
+    uint32_t fg = (uint32_t)luaL_checkinteger(L, 6);
+    int result = chaos_gl_font_text_wrapped(handle, x, y, max_w, str, fg);
+    lua_pushinteger(L, result);
+    return 1;
+}
+
+static int l_font_text_height_wrapped(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    int max_w = (int)luaL_checkinteger(L, 2);
+    const char *str = luaL_checkstring(L, 3);
+    lua_pushinteger(L, chaos_gl_font_text_height_wrapped(handle, max_w, str));
+    return 1;
+}
+
+static int l_font_height(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    lua_pushinteger(L, chaos_gl_font_height(handle));
+    return 1;
+}
+
+static int l_font_ascent(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    lua_pushinteger(L, chaos_gl_font_ascent(handle));
+    return 1;
+}
+
+static int l_font_descent(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    lua_pushinteger(L, chaos_gl_font_descent(handle));
+    return 1;
+}
+
+static int l_font_char_width(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    const char *s = luaL_checkstring(L, 2);
+    lua_pushinteger(L, chaos_gl_font_char_width(handle, s[0]));
+    return 1;
+}
+
 /* ── Textures ────────────────────────────────────────── */
 
 static int l_texture_load(lua_State *L) {
@@ -558,6 +648,19 @@ static const struct luaL_Reg chaosgl_funcs[] = {
     {"text_width",           l_text_width},
     {"text_height_wrapped",  l_text_height_wrapped},
     {"char",                 l_char},
+    /* TTF Fonts */
+    {"font_load",            l_font_load},
+    {"font_free",            l_font_free},
+    {"set_font",             l_set_font},
+    {"get_font",             l_get_font},
+    {"font_text",            l_font_text},
+    {"font_text_width",      l_font_text_width},
+    {"font_text_wrapped",    l_font_text_wrapped},
+    {"font_text_height_wrapped", l_font_text_height_wrapped},
+    {"font_height",          l_font_height},
+    {"font_ascent",          l_font_ascent},
+    {"font_descent",         l_font_descent},
+    {"font_char_width",      l_font_char_width},
     /* Textures */
     {"load_texture",         l_texture_load},
     {"texture_load",         l_texture_load},

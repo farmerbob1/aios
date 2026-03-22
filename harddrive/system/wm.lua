@@ -128,7 +128,8 @@ function wm._draw_taskbar()
     -- Menu button
     chaos_gl.rect_rounded(ix, iy, DOCK_ICON, DOCK_ICON, 6, 0x00383840)
     local a_w = chaos_gl.text_width("A")
-    chaos_gl.text(ix + (DOCK_ICON - a_w) // 2, iy + (DOCK_ICON - 14) // 2, "A", accent, 0, 0)
+    local fh = chaos_gl.font_height(-1)
+    chaos_gl.text(ix + (DOCK_ICON - a_w) // 2, iy + (DOCK_ICON - fh) // 2, "A", accent, 0, 0)
     ix = ix + DOCK_ICON + DOCK_GAP
 
     -- App icons
@@ -141,7 +142,7 @@ function wm._draw_taskbar()
         local title = w.title or "?"
         local letter = title:sub(1, 1):upper()
         local lw = chaos_gl.text_width(letter)
-        chaos_gl.text(ix + (DOCK_ICON - lw) // 2, iy + (DOCK_ICON - 14) // 2, letter, 0x00FFFFFF, 0, 0)
+        chaos_gl.text(ix + (DOCK_ICON - lw) // 2, iy + (DOCK_ICON - fh) // 2, letter, 0x00FFFFFF, 0, 0)
 
         -- Active dot below pill
         if is_active then
@@ -162,7 +163,7 @@ function wm._draw_taskbar()
     ix = ix + stats_w + DOCK_GAP
 
     -- Clock
-    chaos_gl.text(ix, iy + (DOCK_ICON - 14) // 2, clock_str_val, sec_c, 0, 0)
+    chaos_gl.text(ix, iy + (DOCK_ICON - fh) // 2, clock_str_val, sec_c, 0, 0)
 
     chaos_gl.surface_present(taskbar_surface)
 end
@@ -535,7 +536,8 @@ function wm._draw_app_menu(hover_idx)
         if i == hover_idx then
             chaos_gl.rect(2, y, mw - 4, 28, hover_c)
         end
-        chaos_gl.text(12, y + 6, app.name, text_c, 0, 0)
+        local afh = chaos_gl.font_height(-1)
+        chaos_gl.text(12, y + (28 - afh) // 2, app.name, text_c, 0, 0)
     end
 
     chaos_gl.surface_present(app_menu_surface)

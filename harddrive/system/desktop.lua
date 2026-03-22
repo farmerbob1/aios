@@ -41,6 +41,15 @@ for i, ic in ipairs(desktop_icons) do
     ic.y = icon_start_y + (i - 1) * icon_spacing
 end
 
+-- Load system TTF font
+local sys_font = chaos_gl.font_load("/system/fonts/Inter-Regular.ttf", 14)
+if sys_font >= 0 then
+    chaos_gl.set_font(sys_font)
+    print("[desktop] System font loaded (handle " .. sys_font .. ")")
+else
+    print("[desktop] WARNING: TTF font load failed, using bitmap fallback")
+end
+
 -- Destroy boot splash
 chaos_gl.boot_splash_destroy()
 

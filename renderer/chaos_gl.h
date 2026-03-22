@@ -12,6 +12,7 @@
 #include "shaders.h"
 #include "texture.h"
 #include "model.h"
+#include "ttf_font.h"
 
 /* ── Lifecycle ─────────────────────────────────────── */
 

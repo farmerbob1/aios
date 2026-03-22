@@ -19,7 +19,8 @@ function Checkbox:get_size()
     end
     local cs = self:get_style("checkbox_size") or 16
     local tw = chaos_gl.text_width(self.label)
-    return cs + 8 + tw, math.max(cs, 16)
+    local fh = chaos_gl.font_height(-1)
+    return cs + 8 + tw, math.max(cs, fh)
 end
 
 function Checkbox:draw(x, y)
@@ -40,7 +41,8 @@ function Checkbox:draw(x, y)
     end
 
     local fg = self:get_style("text_primary") or 0x00FFFFFF
-    chaos_gl.text(x + cs + 8, y + (cs - 16) // 2, self.label, fg, 0, 0)
+    local fh = chaos_gl.font_height(-1)
+    chaos_gl.text(x + cs + 8, y + (cs - fh) // 2, self.label, fg, 0, 0)
 
     if self.focused then
         local fc = self:get_style("focus_outline") or 0x00FF8800

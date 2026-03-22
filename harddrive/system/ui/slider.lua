@@ -69,7 +69,8 @@ function Slider:draw(x, y)
 
     if self.show_value then
         local fg = self:get_style("text_primary") or 0x00FFFFFF
-        chaos_gl.text(x + self.w + 4, y + (self.h - 16) // 2, tostring(math.floor(self.value)), fg, 0, 0)
+        local fh = chaos_gl.font_height(-1)
+        chaos_gl.text(x + self.w + 4, y + (self.h - fh) // 2, tostring(math.floor(self.value)), fg, 0, 0)
     end
 
     if self.focused then

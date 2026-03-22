@@ -48,6 +48,16 @@ function wm.init()
     stats_last_time = aios.os.millis()
 end
 
+-- ── Dock constants ──────────────────────────────────
+
+local DOCK_KEY = 0x00FF00FF  -- color key for transparency
+local DOCK_H = 52            -- total surface height (pill + margin)
+local DOCK_ICON = 36         -- icon size inside dock
+local DOCK_GAP = 8           -- gap between icons
+local DOCK_PAD = 12          -- padding inside pill
+local DOCK_MARGIN_B = 6      -- margin from screen bottom
+local DOCK_RADIUS = 12       -- pill corner radius
+
 -- ── Dock layout helper ──────────────────────────────
 
 local function calc_dock_pill_x()
@@ -62,14 +72,6 @@ local function calc_dock_pill_x()
 end
 
 -- ── macOS-style Dock (floating centered pill) ───────
-
-local DOCK_KEY = 0x00FF00FF  -- color key for transparency
-local DOCK_H = 52            -- total surface height (pill + margin)
-local DOCK_ICON = 36         -- icon size inside dock
-local DOCK_GAP = 8           -- gap between icons
-local DOCK_PAD = 12          -- padding inside pill
-local DOCK_MARGIN_B = 6      -- margin from screen bottom
-local DOCK_RADIUS = 12       -- pill corner radius
 
 function wm._init_taskbar()
     taskbar_surface = chaos_gl.surface_create(1024, DOCK_H, false)

@@ -51,6 +51,28 @@ LUA_KERN_CFLAGS = $(CFLAGS) -Iinclude/libc -I$(LUADIR) -Ikernel/lua \
 LUA_MATH_CFLAGS = $(RENDERER_CFLAGS) -Iinclude/libc -I$(LUADIR) -Ikernel/lua \
                   -Wno-unused-parameter -Wno-unused-variable
 
+# lwIP vendor source — compiled like Lua vendor (suppress all warnings)
+LWIPDIR = vendor/lwip-2.2.0/src
+LWIP_CFLAGS = -ffreestanding -nostdlib -fno-builtin \
+              -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 \
+              -D__AIOS_KERNEL__ -Ikernel/net -Ikernel/net/arch -I$(LWIPDIR)/include -Iinclude/libc -I. \
+              -w -Wno-implicit-function-declaration
+
+# lwIP kernel integration — same as kernel CFLAGS + lwIP headers
+LWIP_KERN_CFLAGS = $(CFLAGS) -Ikernel/net -I$(LWIPDIR)/include -Ikernel/net/arch \
+                   -Wno-unused-parameter -Wno-unused-variable
+
+# BearSSL vendor source — pure C89, no FP, no OS deps
+BSSLDIR = vendor/bearssl-0.6
+BSSL_CFLAGS = -ffreestanding -nostdlib -fno-builtin \
+              -O2 -g -std=c99 -march=core2 -mno-sse -mno-mmx -mno-sse2 \
+              -D__AIOS_KERNEL__ -I$(BSSLDIR)/inc -I$(BSSLDIR)/src -Iinclude/libc -I. -w
+
+# BearSSL kernel integration — include libc shims FIRST to shadow compiler headers
+BSSL_KERN_CFLAGS = $(CFLAGS) -Iinclude/libc -I$(BSSLDIR)/inc -I$(BSSLDIR)/src \
+                   -Ikernel/net -I$(LWIPDIR)/include -Ikernel/net/arch \
+                   -Wno-unused-parameter -Wno-unused-variable
+
 # Assembler flags
 NASMFLAGS_BIN = -f bin
 NASMFLAGS_ELF = -f elf32 -g
@@ -86,6 +108,9 @@ C_SOURCES = \
     $(DRVDIR)/mouse.c \
     $(DRVDIR)/input.c \
     $(DRVDIR)/ata.c \
+    $(DRVDIR)/pci.c \
+    $(KERNDIR)/net/netbuf.c \
+    $(KERNDIR)/net/netif_bridge.c \
     $(KERNDIR)/chaos/chaos_block.c \
     $(KERNDIR)/chaos/chaos_alloc.c \
     $(KERNDIR)/chaos/chaos_inode.c \
@@ -152,6 +177,42 @@ LUA_KERNEL_SOURCES = \
     $(KERNDIR)/lua/lua_chaosgl.c \
     $(KERNDIR)/lua/lua_aios_wm.c
 
+# ===== lwIP sources =====
+
+# lwIP vendor — core + ipv4 + api + ethernet netif
+LWIP_VENDOR_SOURCES = $(wildcard $(LWIPDIR)/core/*.c) \
+                      $(wildcard $(LWIPDIR)/core/ipv4/*.c) \
+                      $(wildcard $(LWIPDIR)/api/*.c) \
+                      $(LWIPDIR)/netif/ethernet.c
+
+# lwIP kernel integration sources
+LWIP_KERNEL_SOURCES = \
+    $(KERNDIR)/net/sys_arch.c \
+    $(KERNDIR)/net/lwip_netif.c \
+    $(KERNDIR)/net/lwip_init.c \
+    $(KERNDIR)/net/lua_net.c
+
+# ===== BearSSL sources =====
+
+BSSL_VENDOR_SOURCES = $(wildcard $(BSSLDIR)/src/codec/*.c) \
+                      $(wildcard $(BSSLDIR)/src/ec/*.c) \
+                      $(wildcard $(BSSLDIR)/src/hash/*.c) \
+                      $(wildcard $(BSSLDIR)/src/int/*.c) \
+                      $(wildcard $(BSSLDIR)/src/kdf/*.c) \
+                      $(wildcard $(BSSLDIR)/src/mac/*.c) \
+                      $(wildcard $(BSSLDIR)/src/rand/*.c) \
+                      $(wildcard $(BSSLDIR)/src/rsa/*.c) \
+                      $(wildcard $(BSSLDIR)/src/ssl/*.c) \
+                      $(wildcard $(BSSLDIR)/src/symcipher/*.c) \
+                      $(wildcard $(BSSLDIR)/src/x509/*.c) \
+                      $(wildcard $(BSSLDIR)/src/aead/*.c) \
+                      $(BSSLDIR)/src/settings.c
+
+BSSL_KERNEL_SOURCES = \
+    $(KERNDIR)/net/entropy.c \
+    $(KERNDIR)/net/bearssl_port.c \
+    $(KERNDIR)/net/trust_anchors.c
+
 # ===== Object files =====
 C_OBJECTS        = $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SOURCES))
 RENDERER_OBJECTS = $(patsubst %.c,$(BUILDDIR)/%.o,$(RENDERER_SOURCES))
@@ -163,9 +224,19 @@ LUA_KERNEL_OBJECTS  = $(patsubst $(KERNDIR)/lua/%.c,$(BUILDDIR)/$(KERNDIR)/lua/%
 LUA_MATH_OBJECT     = $(BUILDDIR)/$(KERNDIR)/lua/lua_math_shim.o
 LUA_ASM_OBJECT      = $(BUILDDIR)/$(KERNDIR)/lua/lua_setjmp.o
 
+# lwIP objects
+LWIP_VENDOR_OBJECTS = $(patsubst $(LWIPDIR)/%.c,$(BUILDDIR)/$(LWIPDIR)/%.o,$(LWIP_VENDOR_SOURCES))
+LWIP_KERNEL_OBJECTS = $(patsubst $(KERNDIR)/net/%.c,$(BUILDDIR)/$(KERNDIR)/net/%.o,$(LWIP_KERNEL_SOURCES))
+
+# BearSSL objects
+BSSL_VENDOR_OBJECTS = $(patsubst $(BSSLDIR)/%.c,$(BUILDDIR)/$(BSSLDIR)/%.o,$(BSSL_VENDOR_SOURCES))
+BSSL_KERNEL_OBJECTS = $(patsubst $(KERNDIR)/net/%.c,$(BUILDDIR)/$(KERNDIR)/net/%.o,$(BSSL_KERNEL_SOURCES))
+
 ALL_OBJECTS = $(C_OBJECTS) $(RENDERER_OBJECTS) $(ASM_OBJECTS) \
               $(LUA_VENDOR_OBJECTS) $(LUA_KERNEL_OBJECTS) \
-              $(LUA_MATH_OBJECT) $(LUA_ASM_OBJECT)
+              $(LUA_MATH_OBJECT) $(LUA_ASM_OBJECT) \
+              $(LWIP_VENDOR_OBJECTS) $(LWIP_KERNEL_OBJECTS) \
+              $(BSSL_VENDOR_OBJECTS) $(BSSL_KERNEL_OBJECTS)
 
 # Module .kaos files (compiled from modules/*.c)
 MODULE_SOURCES = $(wildcard $(MODDIR)/*.c)
@@ -200,6 +271,50 @@ stage2_check: $(BUILDDIR)/stage2.bin
 $(BUILDDIR)/$(MODDIR)/%.kaos: $(MODDIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(MODULE_CFLAGS) -o $@ $<
+
+# ===== BearSSL compilation rules (must be before generic rules) =====
+
+# BearSSL vendor source -> object
+$(BUILDDIR)/$(BSSLDIR)/%.o: $(BSSLDIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(BSSL_CFLAGS) -c $< -o $@
+
+# BearSSL kernel integration -> object
+$(BUILDDIR)/$(KERNDIR)/net/entropy.o: $(KERNDIR)/net/entropy.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILDDIR)/$(KERNDIR)/net/bearssl_port.o: $(KERNDIR)/net/bearssl_port.c
+	@mkdir -p $(dir $@)
+	$(CC) $(BSSL_KERN_CFLAGS) -c $< -o $@
+
+$(BUILDDIR)/$(KERNDIR)/net/trust_anchors.o: $(KERNDIR)/net/trust_anchors.c
+	@mkdir -p $(dir $@)
+	$(CC) $(BSSL_KERN_CFLAGS) -c $< -o $@
+
+# ===== lwIP compilation rules (must be before generic rules) =====
+
+# lwIP vendor source -> object (suppress all warnings)
+$(BUILDDIR)/$(LWIPDIR)/%.o: $(LWIPDIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LWIP_CFLAGS) -c $< -o $@
+
+# lwIP kernel integration -> object
+$(BUILDDIR)/$(KERNDIR)/net/sys_arch.o: $(KERNDIR)/net/sys_arch.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LWIP_KERN_CFLAGS) -c $< -o $@
+
+$(BUILDDIR)/$(KERNDIR)/net/lwip_netif.o: $(KERNDIR)/net/lwip_netif.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LWIP_KERN_CFLAGS) -c $< -o $@
+
+$(BUILDDIR)/$(KERNDIR)/net/lwip_init.o: $(KERNDIR)/net/lwip_init.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LWIP_KERN_CFLAGS) -c $< -o $@
+
+$(BUILDDIR)/$(KERNDIR)/net/lua_net.o: $(KERNDIR)/net/lua_net.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LWIP_KERN_CFLAGS) -Iinclude/libc -I$(LUADIR) -Ikernel/lua -c $< -o $@
 
 # ===== Lua compilation rules (must be before generic rules) =====
 
@@ -286,13 +401,15 @@ $(BUILDDIR)/os.img: $(BUILDDIR)/stage1.bin $(BUILDDIR)/stage2.bin $(BUILDDIR)/ke
 	$(PYTHON) tools/populate_fs.py $(BUILDDIR)/os.img 2048 $(BUILDDIR)/$(MODDIR)
 	@echo "Disk image: $(BUILDDIR)/os.img ($$(wc -c < $(BUILDDIR)/os.img | tr -d ' ') bytes)"
 
-# Run in QEMU
+# Run in QEMU (with E1000 NIC via user-mode networking)
 run: $(BUILDDIR)/os.img
 	$(QEMU) \
 		-cpu core2duo \
 		-m 256 \
 		-vga std \
 		-drive format=raw,file=$(BUILDDIR)/os.img \
+		-netdev user,id=net0 \
+		-device e1000,netdev=net0 \
 		-serial stdio \
 		-no-reboot \
 		-no-shutdown
@@ -304,6 +421,8 @@ run-debug: $(BUILDDIR)/os.img
 		-m 256 \
 		-vga std \
 		-drive format=raw,file=$(BUILDDIR)/os.img \
+		-netdev user,id=net0 \
+		-device e1000,netdev=net0 \
 		-serial stdio \
 		-no-reboot \
 		-no-shutdown \

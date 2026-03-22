@@ -5,6 +5,7 @@
 #include "../kernel/irq.h"
 #include "../kernel/scheduler.h"
 #include "../include/kaos/export.h"
+#include "../kernel/net/entropy.h"
 
 #define PIT_CH0_DATA 0x40
 #define PIT_CMD      0x43
@@ -22,6 +23,7 @@ static uint64_t timer_read_ticks(void) {
 
 void timer_handler(void) {
     ticks++;
+    entropy_add_rdtsc();
     schedule();
 }
 

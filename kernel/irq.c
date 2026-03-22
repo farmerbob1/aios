@@ -5,6 +5,7 @@
 #include "isr.h"
 #include "../include/io.h"
 #include "../include/kaos/export.h"
+#include "net/entropy.h"
 
 #define PIC1_CMD  0x20
 #define PIC1_DATA 0x21
@@ -112,6 +113,9 @@ void irq_common_handler(struct registers* regs) {
         outb(PIC2_CMD, 0x20);
     }
     outb(PIC1_CMD, 0x20);
+
+    /* Collect entropy from IRQ timing */
+    entropy_add_irq((uint8_t)irq_num);
 
     /* Then call handler */
     if (irq_num >= 0 && irq_num < 16 && irq_handlers[irq_num]) {

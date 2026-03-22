@@ -29,10 +29,14 @@
 #include "../drivers/mouse.h"
 #include "../drivers/input.h"
 #include "../drivers/ata.h"
+#include "../drivers/pci.h"
 #include "chaos/chaos.h"
 #include "../renderer/chaos_gl.h"
 #include "kaos/kaos.h"
 #include "boot_splash.h"
+#include "net/netbuf.h"
+#include "net/netif_bridge.h"
+#include "net/entropy.h"
 
 #define CHAOS_FS_LBA_START 2048  /* 1MB offset into disk */
 
@@ -127,6 +131,9 @@ void kernel_main(struct boot_info* info) {
     r = ata_init();
     boot_log("ATA/IDE PIO disk", r);
 
+    r = pci_init();
+    boot_log("PCI bus", r);
+
     /* ── Phase 4: ChaosFS ─────────────────────────── */
     if (ata_is_present()) {
         r = chaos_mount(CHAOS_FS_LBA_START);
@@ -141,12 +148,29 @@ void kernel_main(struct boot_info* info) {
     boot_splash_init();
     boot_splash_status("Initializing modules...");
 
+    /* ── Network infrastructure (before KAOS, so E1000 module can use it) */
+    entropy_init();
+    netbuf_init();
+    netif_bridge_init();
+
     /* ── Phase 6: KAOS ──────────────────────────────── */
     r = kaos_init();
     boot_log("KAOS module system", r);
 
     boot_splash_status("Loading modules...");
     kaos_load_all("/system/modules/");
+
+    /* ── Phase 11c: lwIP TCP/IP stack ─────────────────────── */
+    boot_splash_status("Starting network...");
+    extern init_result_t lwip_stack_init(void);
+    r = lwip_stack_init();
+    boot_log("lwIP TCP/IP", r);
+
+    /* ── Phase 11e: BearSSL TLS ──────────────────────────── */
+    boot_splash_status("Initializing TLS...");
+    extern void bearssl_init(void);
+    bearssl_init();
+    boot_log("BearSSL TLS", INIT_OK);
 
     /* ── Phase 7: Lua Runtime ──────────────────────────── */
     boot_splash_status("Starting Lua runtime...");

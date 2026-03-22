@@ -107,6 +107,7 @@ static int aios_searcher(lua_State *L) {
     static const char *prefixes[] = {
         "/system/ui/",
         "/system/layout/",
+        "/system/net/",
         "/system/",
         "/apps/",
         "/test/",

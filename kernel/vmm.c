@@ -115,28 +115,14 @@ init_result_t vmm_init(struct boot_info* info) {
 
     serial_printf("[VMM] page directory at 0x%08x\n", pd_phys);
 
-    /* Step 2: Pre-allocate page tables for physical address range */
-    uint32_t max_pd_idx = PD_INDEX(info->max_phys_addr);
-    if (info->max_phys_addr & 0x3FFFFF) max_pd_idx++; /* round up */
+    /* Step 2: Pre-allocate ALL 1024 page tables for full 4GB address space.
+     * Cost: 1024 * 4KB = 4MB (1.6% of 256MB).
+     * Benefit: vmm_map_page() can never panic post-paging.
+     * Required for PCI MMIO mapping (E1000 BAR0 at ~0xFEB00000, etc). */
+    serial_printf("[VMM] pre-allocating all 1024 page tables (4MB)\n");
 
-    serial_printf("[VMM] pre-allocating %u page tables (0-0x%08x)\n",
-                  max_pd_idx, info->max_phys_addr);
-
-    for (uint32_t i = 0; i < max_pd_idx; i++) {
+    for (uint32_t i = 0; i < 1024; i++) {
         ensure_page_table(i);
-    }
-
-    /* Also pre-allocate PT(s) for framebuffer if it's at a high address */
-    if (info->fb_addr != 0) {
-        uint32_t fb_size = info->fb_pitch * info->fb_height;
-        uint32_t fb_start_pd = PD_INDEX(info->fb_addr);
-        uint32_t fb_end_pd = PD_INDEX(info->fb_addr + fb_size - 1);
-        for (uint32_t i = fb_start_pd; i <= fb_end_pd; i++) {
-            if (!(page_directory[i] & PTE_PRESENT)) {
-                ensure_page_table(i);
-            }
-        }
-        serial_printf("[VMM] framebuffer PTs: PD[%u]-PD[%u]\n", fb_start_pd, fb_end_pd);
     }
 
     /* Step 3: Map low 1MB (256 pages) */

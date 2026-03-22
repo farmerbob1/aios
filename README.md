@@ -24,7 +24,9 @@ Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
 **ChaosGL (Phase 5)**
 - Software 3D renderer with surface-based compositor
 - Dirty-region tracking for efficient redraws
-- 2D primitives, text rendering, texture support, clipping
+- 2D primitives, texture support, clipping
+- TrueType font rendering (stb_truetype, Inter font)
+- PNG/JPEG image loading (stb_image)
 - SSE2 SIMD inner loops (protected by fxsave/fxrstor)
 
 **KAOS Modules (Phase 6)**
@@ -32,10 +34,18 @@ Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
 - Symbol table with 66+ exported kernel functions
 - Dependency resolution, essential flag, auto-load from `/system/modules/`
 
+**LZ4 Compression & CPK Archives**
+- LZ4 block compression engine (freestanding, ~180 lines)
+- CPK (Chaos Package) archive format with optional per-file LZ4 compression
+- CRC-32 integrity verification
+- Lua API (`aios.cpk.*`) for opening, listing, extracting, and installing archives
+- Python build tool (`cpk_pack.py`) for creating `.cpk` files from directories
+
 **Lua 5.5 Runtime (Phase 7)**
 - Embedded Lua 5.5.0 as the application scripting layer
 - Custom libc shims, ChaosFS-backed `require`/`dofile`
-- AIOS libraries: `aios.io`, `aios.os`, `aios.input`, `aios.task`, `aios.debug`, `aios.net`
+- App-relative `require()` paths (apps can bundle private modules)
+- AIOS libraries: `aios.io`, `aios.os`, `aios.input`, `aios.task`, `aios.debug`, `aios.net`, `aios.cpk`
 
 **UI Toolkit (Phase 8)**
 - 20 Lua widgets (Button, TextField, TextArea, ListView, TabView, Dialog, etc.)
@@ -44,12 +54,12 @@ Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
 
 **Window Manager & Desktop (Phases 9-10)**
 - C-level shared WM registry with per-window event queues
-- Mac OS-style floating dock taskbar
+- macOS-style window chrome (traffic light close/minimize/maximize buttons)
+- Shared AppWindow module and titlebar — zero boilerplate per app
+- Floating dock with app icon textures and live system stats
 - Boot splash with icon parade during module loading
-- File browser (grid/list views, sortable, app detection)
-- Settings app (appearance, system info, modules)
-- Terminal (Lua REPL + built-in commands)
-- Text editor with line numbers
+- 9 apps: File Browser, Terminal, Settings, Editor, Music Player, Image Viewer, 3D Viewer, System Monitor, Web Server
+- Directory-based app packaging with `manifest.lua` metadata
 
 **Networking (Phase 11)**
 - PCI bus enumeration driver
@@ -94,6 +104,31 @@ clear                   Clear terminal output
 
 Any other input is evaluated as a Lua expression.
 
+## App Packaging
+
+Apps live in `harddrive/apps/<name>/` with a `manifest.lua` and entry script:
+
+```
+harddrive/apps/myapp/
+  manifest.lua    -- metadata
+  main.lua        -- entry point
+  lib/            -- optional private modules (require-able)
+```
+
+**manifest.lua:**
+```lua
+return {
+    name = "My App",
+    version = "1.0",
+    author = "AIOS",
+    icon = "/system/icons/myapp_32.png",
+    entry = "main.lua",
+    description = "Does something useful",
+}
+```
+
+Apps can also be distributed as `.cpk` archives (created with `tools/cpk_pack.py`) and installed via `aios.cpk.install()`.
+
 ## Architecture
 
 ```
@@ -124,22 +159,24 @@ PCI -> E1000 (KAOS) -> lwIP -> BearSSL -> aios.net.* -> Lua apps
 boot/           Bootloader (stage1 MBR, stage2 ELF loader)
 kernel/         Kernel core (PMM, VMM, heap, scheduler, interrupts)
   chaos/        ChaosFS filesystem
+  compression/  LZ4 compression and CPK archive reader
   kaos/         KAOS module system
   lua/          Lua runtime integration and AIOS bindings
   net/          Networking (lwIP port, BearSSL port, Lua net API)
+  audio/        Audio subsystem (WAV, MP3, MIDI)
 drivers/        Hardware drivers (serial, keyboard, mouse, ATA, PCI)
-renderer/       ChaosGL software renderer and compositor
-modules/        KAOS module source (e1000.c)
+renderer/       ChaosGL software renderer, TTF fonts, compositor
+modules/        KAOS module source (e1000.c, ac97.c)
 include/        Shared headers (types, io, boot_info, kaos SDK)
   libc/         Libc shim headers for vendor libraries
   kaos/         KAOS module SDK headers
-vendor/         Third-party source (Lua 5.5, lwIP 2.2, BearSSL 0.6)
+vendor/         Third-party (Lua 5.5, lwIP 2.2, BearSSL 0.6, stb, minimp3)
 harddrive/      Files placed on ChaosFS disk image
-  apps/         GUI applications (files, terminal, settings, editor)
-  system/       Desktop shell, WM, UI toolkit, themes, icons
+  apps/         Packaged apps (each has manifest.lua + main.lua)
+  system/       Desktop shell, WM, UI toolkit, themes, icons, fonts
     net/        Lua networking library (http.lua)
     modules/    KAOS .kaos binaries (populated at build time)
-tools/          Build tools (populate_fs.py, gen_trust_anchors.py)
+tools/          Build tools (populate_fs.py, cpk_pack.py)
 documents/      Design specifications for each phase
 ```
 
@@ -149,3 +186,6 @@ Hobby project. Third-party components retain their original licenses:
 - Lua 5.5.0: MIT License
 - lwIP 2.2.0: BSD License
 - BearSSL 0.6: MIT License
+- stb_image, stb_truetype: MIT License
+- Inter font: SIL Open Font License
+- minimp3: CC0

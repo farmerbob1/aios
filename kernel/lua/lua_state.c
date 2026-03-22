@@ -44,7 +44,7 @@ struct lua_mem_stats {
     size_t limit_bytes;
 };
 
-#define LUA_DEFAULT_MEM_LIMIT (12 * 1024 * 1024)  /* 12MB */
+#define LUA_DEFAULT_MEM_LIMIT (32 * 1024 * 1024)  /* 32MB per Lua state */
 
 /* Panic handler */
 static int lua_aios_panic(lua_State *L) {

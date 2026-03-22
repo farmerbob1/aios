@@ -6,7 +6,7 @@
 #include "../include/types.h"
 
 #define BUDDY_MIN_ORDER  12  /* 2^12 = 4KB minimum block */
-#define BUDDY_MAX_ORDER  24  /* 2^24 = 16MB maximum block */
+#define BUDDY_MAX_ORDER  26  /* 2^26 = 64MB maximum block */
 #define BUDDY_LEVELS     (BUDDY_MAX_ORDER - BUDDY_MIN_ORDER + 1)
 #define BUDDY_MAGIC      0x42554459  /* 'BUDY' */
 #define BUDDY_HDR_SIZE   8

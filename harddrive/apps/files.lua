@@ -1,6 +1,8 @@
 -- @app name="Files" icon="/system/icons/files_48.raw"
 -- AIOS v2 — File Browser Application
 
+local filetypes = require("filetypes")
+
 local W, H = 560, 420
 local surface = chaos_gl.surface_create(W, H, false)
 chaos_gl.surface_set_position(surface, 80, 60)
@@ -44,10 +46,7 @@ local function format_size(bytes)
 end
 
 local function get_type(entry)
-    if entry.is_dir then return "Folder" end
-    local ext = entry.name:match("%.(%w+)$")
-    if ext then return ext:upper() end
-    return "File"
+    return filetypes.get_type_label(entry.name, entry.is_dir)
 end
 
 local function do_sort()
@@ -118,17 +117,25 @@ end
 local function open_entry(entry)
     if entry.is_dir then
         navigate(build_path(entry.name))
-    else
-        local fpath = build_path(entry.name)
-        if entry.name:match("%.lua$") and is_app_file(fpath) then
-            -- It's an app — spawn it
-            local app_name = entry.name:gsub("%.lua$", "")
-            app_name = app_name:sub(1,1):upper() .. app_name:sub(2)
-            aios.task.spawn(fpath, app_name)
-        elseif entry.name:match("%.lua$") or entry.name:match("%.txt$") or entry.name:match("%.md$") then
-            -- Text file — open in editor
-            aios.task.spawn("/apps/edit.lua", "Edit", {file = fpath})
-        end
+        return
+    end
+
+    local fpath = build_path(entry.name)
+
+    -- Check if it's a Lua app first
+    if entry.name:match("%.lua$") and is_app_file(fpath) then
+        local app_name = entry.name:gsub("%.lua$", "")
+        app_name = app_name:sub(1,1):upper() .. app_name:sub(2)
+        aios.task.spawn(fpath, app_name)
+        return
+    end
+
+    -- Use filetypes to find the right handler app
+    local handler = filetypes.get_app(entry.name)
+    if handler then
+        local app_name = handler:match("([^/]+)%.lua$") or "App"
+        app_name = app_name:sub(1,1):upper() .. app_name:sub(2)
+        aios.task.spawn(handler, app_name, {file = fpath})
     end
 end
 

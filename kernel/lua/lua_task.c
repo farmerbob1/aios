@@ -18,9 +18,19 @@ extern void lua_state_destroy(lua_State *L);
 extern int aios_dofile_internal(lua_State *L, const char *path);
 
 /* Per-task Lua context */
+#define LUA_TASK_MAX_ARGS  8
+#define LUA_TASK_ARG_LEN   256
+
+struct lua_task_arg {
+    char key[64];
+    char value[LUA_TASK_ARG_LEN];
+};
+
 struct lua_task_ctx {
     char script_path[256];
     lua_State *L;
+    int argc;
+    struct lua_task_arg args[LUA_TASK_MAX_ARGS];
 };
 
 /* Entry point for Lua tasks */
@@ -45,6 +55,16 @@ static void lua_task_entry_wrapper(void) {
     }
     ctx->L = L;
     self->lua_state = L;
+
+    /* Set global 'arg' table from spawn arguments */
+    if (ctx->argc > 0) {
+        lua_newtable(L);
+        for (int i = 0; i < ctx->argc; i++) {
+            lua_pushstring(L, ctx->args[i].value);
+            lua_setfield(L, -2, ctx->args[i].key);
+        }
+        lua_setglobal(L, "arg");
+    }
 
     /* Load and run the script */
     int err = aios_dofile_internal(L, ctx->script_path);
@@ -78,4 +98,16 @@ int lua_task_create(const char *script_path, const char *task_name,
 
     task_get(tid)->userdata = ctx;
     return tid;
+}
+
+void lua_task_set_arg(int tid, const char *key, const char *value) {
+    struct task *t = task_get(tid);
+    if (!t || !t->userdata) return;
+    struct lua_task_ctx *ctx = (struct lua_task_ctx *)t->userdata;
+    if (ctx->argc >= LUA_TASK_MAX_ARGS) return;
+    strncpy(ctx->args[ctx->argc].key, key, 63);
+    ctx->args[ctx->argc].key[63] = '\0';
+    strncpy(ctx->args[ctx->argc].value, value, LUA_TASK_ARG_LEN - 1);
+    ctx->args[ctx->argc].value[LUA_TASK_ARG_LEN - 1] = '\0';
+    ctx->argc++;
 }

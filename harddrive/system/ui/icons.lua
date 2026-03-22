@@ -61,4 +61,13 @@ function icons.get_all_sizes(name)
     return _registry[name]
 end
 
+function icons.draw(tex, x, y, size)
+    if tex < 0 then return end
+    if chaos_gl.texture_has_alpha(tex) then
+        chaos_gl.blit_alpha(x, y, size, size, tex)
+    else
+        chaos_gl.blit_keyed(x, y, size, size, tex, 0x00FF00FF)
+    end
+end
+
 return icons

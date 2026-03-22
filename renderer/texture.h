@@ -18,6 +18,7 @@ typedef struct {
     int       height;
     int       pitch;
     bool      in_use;
+    bool      has_alpha;
     uint32_t  phys_addr;
     uint32_t  pages;
 } chaos_gl_texture_t;
@@ -27,6 +28,7 @@ void chaos_gl_texture_free(int handle);
 const chaos_gl_texture_t* chaos_gl_texture_get(int handle);
 void chaos_gl_texture_get_size(int handle, int* w, int* h);
 void chaos_gl_texture_init(void);
+bool chaos_gl_texture_has_alpha(int handle);
 
 /* Nearest-neighbour sampling with UV wrap */
 static inline uint32_t chaos_gl_tex_sample(const chaos_gl_texture_t* tex, float u, float v) {

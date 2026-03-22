@@ -63,10 +63,10 @@ void *lua_aios_alloc_tracked(void *ud, void *ptr, size_t osize, size_t nsize) {
         return NULL;
     }
 
-    /* Check limit */
+    /* Check limit — for new allocs (ptr==NULL), osize is a type tag, not a size */
     if (stats->limit_bytes > 0) {
-        size_t delta = nsize > osize ? nsize - osize : 0;
-        if (stats->current_bytes + delta > stats->limit_bytes) {
+        size_t growth = ptr ? (nsize > osize ? nsize - osize : 0) : nsize;
+        if (stats->current_bytes + growth > stats->limit_bytes) {
             return NULL;  /* triggers Lua OOM */
         }
     }
@@ -74,16 +74,19 @@ void *lua_aios_alloc_tracked(void *ud, void *ptr, size_t osize, size_t nsize) {
     void *result;
     if (ptr == NULL) {
         result = kmalloc(nsize);
-        stats->total_allocs++;
+        if (result) {
+            stats->current_bytes += nsize;
+            stats->total_allocs++;
+        }
     } else {
         result = krealloc(ptr, nsize);
+        if (result) {
+            stats->current_bytes += nsize - osize;
+        }
     }
 
-    if (result) {
-        stats->current_bytes += nsize - osize;
-        if (stats->current_bytes > stats->peak_bytes)
-            stats->peak_bytes = stats->current_bytes;
-    }
+    if (stats->current_bytes > stats->peak_bytes)
+        stats->peak_bytes = stats->current_bytes;
     return result;
 }
 

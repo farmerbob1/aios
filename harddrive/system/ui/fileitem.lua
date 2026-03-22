@@ -1,21 +1,12 @@
 -- AIOS UI Toolkit — FileItem Widget
 local core = require("core")
+local filetypes = require("filetypes")
 
 local FileItem = setmetatable({}, {__index = core.Widget})
 FileItem.__index = FileItem
 
-local ext_to_type = {
-    txt = "text", md = "text", log = "text",
-    lua = "lua",
-    raw = "raw",
-    cobj = "cobj",
-    wav = "audio", pcm = "audio",
-    bin = "binary", dat = "binary",
-}
-
 function FileItem.type_from_path(path)
-    local ext = path:match("%.(%w+)$")
-    return ext and ext_to_type[ext:lower()] or "file"
+    return filetypes.get_type(path:match("[^/]+$") or path)
 end
 
 function FileItem.new(name, file_type, opts)

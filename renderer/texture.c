@@ -1,6 +1,8 @@
-/* ChaosGL Texture Subsystem — loads .rawt textures from ChaosFS into PMM pages */
+/* ChaosGL Texture Subsystem — loads textures from ChaosFS into PMM pages
+ * Supports: RAWT (.raw), PNG, JPEG, BMP, GIF via stb_image */
 
 #include "texture.h"
+#include "stb_image_decode.h"
 #include "../kernel/pmm.h"
 #include "../kernel/vmm.h"
 #include "../kernel/heap.h"
@@ -28,82 +30,134 @@ int chaos_gl_texture_load(const char* path) {
         return -1;
     }
 
-    /* Open the file from ChaosFS */
+    /* Open the file and get its size */
     int fd = chaos_open(path, CHAOS_O_RDONLY);
     if (fd < 0) {
         serial_printf("[texture] failed to open '%s'\n", path);
         return -1;
     }
 
-    /* Read the raw_tex_header (16 bytes) */
-    struct raw_tex_header hdr;
-    int bytes_read = chaos_read(fd, &hdr, sizeof(hdr));
-    if (bytes_read != (int)sizeof(hdr)) {
-        serial_printf("[texture] failed to read header from '%s'\n", path);
+    struct chaos_stat st;
+    if (chaos_stat(path, &st) < 0 || st.size == 0) {
+        serial_printf("[texture] failed to stat '%s'\n", path);
         chaos_close(fd);
         return -1;
     }
 
-    /* Validate header */
-    if (hdr.magic != RAW_TEX_MAGIC) {
-        serial_printf("[texture] bad magic 0x%x in '%s'\n", hdr.magic, path);
-        chaos_close(fd);
-        return -1;
-    }
-    if (hdr.width == 0 || hdr.height == 0 ||
-        hdr.width > CHAOS_GL_MAX_TEX_SIZE || hdr.height > CHAOS_GL_MAX_TEX_SIZE) {
-        serial_printf("[texture] invalid dimensions %ux%u in '%s'\n",
-                      hdr.width, hdr.height, path);
+    /* Read entire file into temporary buffer */
+    uint32_t file_size = st.size;
+    uint8_t *file_buf = (uint8_t *)kmalloc(file_size);
+    if (!file_buf) {
+        serial_printf("[texture] kmalloc(%u) failed for '%s'\n", file_size, path);
         chaos_close(fd);
         return -1;
     }
 
-    /* Calculate pixel data size and pages needed */
-    uint32_t w = hdr.width;
-    uint32_t h = hdr.height;
-    uint32_t size = w * h * 4;
-    uint32_t pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+    uint32_t total_read = 0;
+    while (total_read < file_size) {
+        int r = chaos_read(fd, file_buf + total_read, file_size - total_read);
+        if (r <= 0) break;
+        total_read += (uint32_t)r;
+    }
+    chaos_close(fd);
 
-    /* Allocate physical pages */
+    if (total_read < 16) {
+        serial_printf("[texture] file too small (%u bytes) '%s'\n", total_read, path);
+        kfree(file_buf);
+        return -1;
+    }
+
+    /* Detect format by magic bytes */
+    int fmt = stbi_detect_format(file_buf, (int)total_read);
+
+    uint32_t w = 0, h = 0;
+    bool has_alpha = false;
+    uint8_t *pixel_data = NULL;  /* Decoded pixel data (BGRA/BGRX), needs kfree */
+
+    if (fmt == STBI_FMT_RAWT) {
+        /* RAWT: parse 16-byte header + raw BGRX pixels */
+        struct raw_tex_header *hdr = (struct raw_tex_header *)file_buf;
+        if (hdr->width == 0 || hdr->height == 0 ||
+            hdr->width > CHAOS_GL_MAX_TEX_SIZE || hdr->height > CHAOS_GL_MAX_TEX_SIZE) {
+            serial_printf("[texture] invalid RAWT dimensions %ux%u in '%s'\n",
+                          hdr->width, hdr->height, path);
+            kfree(file_buf);
+            return -1;
+        }
+        w = hdr->width;
+        h = hdr->height;
+        uint32_t pixel_size = w * h * 4;
+        if (total_read < 16 + pixel_size) {
+            serial_printf("[texture] RAWT truncated in '%s'\n", path);
+            kfree(file_buf);
+            return -1;
+        }
+        has_alpha = false;
+        /* Pixels are at file_buf + 16, we'll copy directly to PMM below */
+        pixel_data = NULL;  /* Signal to use file_buf + 16 */
+    } else if (fmt == STBI_FMT_PNG || fmt == STBI_FMT_JPEG ||
+               fmt == STBI_FMT_BMP || fmt == STBI_FMT_GIF) {
+        /* Decode via stb_image */
+        int iw, ih, ia;
+        pixel_data = stbi_decode_from_memory_bgra(file_buf, (int)total_read,
+                                                   &iw, &ih, &ia);
+        if (!pixel_data) {
+            serial_printf("[texture] stb_image decode failed for '%s'\n", path);
+            kfree(file_buf);
+            return -1;
+        }
+        w = (uint32_t)iw;
+        h = (uint32_t)ih;
+        has_alpha = (ia != 0);
+
+        if (w > CHAOS_GL_MAX_TEX_SIZE || h > CHAOS_GL_MAX_TEX_SIZE) {
+            serial_printf("[texture] image too large %ux%u in '%s'\n", w, h, path);
+            kfree(pixel_data);
+            kfree(file_buf);
+            return -1;
+        }
+    } else {
+        serial_printf("[texture] unknown format in '%s'\n", path);
+        kfree(file_buf);
+        return -1;
+    }
+
+    /* Allocate PMM pages for final pixel storage */
+    uint32_t pixel_size = w * h * 4;
+    uint32_t pages = (pixel_size + PAGE_SIZE - 1) / PAGE_SIZE;
     uint32_t phys = pmm_alloc_pages(pages);
     if (phys == 0) {
         serial_printf("[texture] pmm_alloc_pages(%u) failed for '%s'\n", pages, path);
-        chaos_close(fd);
+        if (pixel_data) kfree(pixel_data);
+        kfree(file_buf);
         return -1;
     }
 
-    /* Identity-map the pages and mark reserved in heap */
     vmm_map_range(phys, phys, pages * PAGE_SIZE, PTE_PRESENT | PTE_WRITABLE);
     heap_mark_reserved(phys, pages);
 
-    /* Read pixel data in a loop (ChaosFS may return partial reads) */
-    uint8_t* buf = (uint8_t*)phys;
-    uint32_t total_read = 0;
-    while (total_read < size) {
-        int r = chaos_read(fd, buf + total_read, size - total_read);
-        if (r <= 0) {
-            serial_printf("[texture] read error at offset %u/%u for '%s'\n",
-                          total_read, size, path);
-            chaos_close(fd);
-            pmm_free_pages(phys, pages);
-            return -1;
-        }
-        total_read += (uint32_t)r;
+    /* Copy pixel data into PMM pages */
+    if (pixel_data) {
+        memcpy((void *)phys, pixel_data, pixel_size);
+        kfree(pixel_data);
+    } else {
+        /* RAWT: pixels at file_buf + 16 */
+        memcpy((void *)phys, file_buf + 16, pixel_size);
     }
-
-    chaos_close(fd);
+    kfree(file_buf);
 
     /* Fill the texture struct */
-    textures[handle].data      = (uint32_t*)phys;
+    textures[handle].data      = (uint32_t *)phys;
     textures[handle].width     = (int)w;
     textures[handle].height    = (int)h;
     textures[handle].pitch     = (int)w;
     textures[handle].in_use    = true;
+    textures[handle].has_alpha = has_alpha;
     textures[handle].phys_addr = phys;
     textures[handle].pages     = pages;
 
-    serial_printf("[texture] loaded '%s' as handle %d (%ux%u, %u pages)\n",
-                  path, handle, w, h, pages);
+    serial_printf("[texture] loaded '%s' as handle %d (%ux%u, %u pages, alpha=%d)\n",
+                  path, handle, w, h, pages, has_alpha);
     return handle;
 }
 
@@ -131,4 +185,10 @@ void chaos_gl_texture_get_size(int handle, int* w, int* h) {
     }
     if (w) *w = textures[handle].width;
     if (h) *h = textures[handle].height;
+}
+
+bool chaos_gl_texture_has_alpha(int handle) {
+    if (handle < 0 || handle >= CHAOS_GL_MAX_TEXTURES) return false;
+    if (!textures[handle].in_use) return false;
+    return textures[handle].has_alpha;
 }

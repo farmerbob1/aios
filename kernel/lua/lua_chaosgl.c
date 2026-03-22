@@ -330,6 +330,24 @@ static int l_blit_keyed(lua_State *L) {
     return 0;
 }
 
+static int l_blit_alpha(lua_State *L) {
+    int x = (int)luaL_checkinteger(L, 1);
+    int y = (int)luaL_checkinteger(L, 2);
+    int w = (int)luaL_checkinteger(L, 3);
+    int h = (int)luaL_checkinteger(L, 4);
+    int tex_handle = (int)luaL_checkinteger(L, 5);
+    const chaos_gl_texture_t *tex = chaos_gl_texture_get(tex_handle);
+    if (!tex || !tex->data) return 0;
+    chaos_gl_blit_alpha(x, y, w, h, tex->data, tex->pitch);
+    return 0;
+}
+
+static int l_texture_has_alpha(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    lua_pushboolean(L, chaos_gl_texture_has_alpha(handle));
+    return 1;
+}
+
 /* ── 3D Camera / Projection / Transform ──────────────── */
 
 static int l_set_camera(lua_State *L) {
@@ -546,9 +564,11 @@ static const struct luaL_Reg chaosgl_funcs[] = {
     {"free_texture",         l_texture_free},
     {"texture_free",         l_texture_free},
     {"texture_get_size",     l_texture_get_size},
+    {"texture_has_alpha",    l_texture_has_alpha},
     /* Blit */
     {"blit",                 l_blit},
     {"blit_keyed",           l_blit_keyed},
+    {"blit_alpha",           l_blit_alpha},
     /* 3D */
     {"set_camera",           l_set_camera},
     {"set_perspective",      l_set_perspective},

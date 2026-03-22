@@ -1,7 +1,7 @@
 /* AIOS v2 — Buddy Allocator
  * Power-of-2 block allocator for large allocations (>2048 bytes).
  * Manages a contiguous physical memory region with split/merge.
- * Orders 12 (4KB) through 24 (16MB). */
+ * Orders 12 (4KB) through 26 (64MB). */
 
 #include "buddy.h"
 #include "../include/string.h"

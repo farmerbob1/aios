@@ -251,12 +251,17 @@ TSF_CFLAGS = $(RENDERER_CFLAGS) -Ivendor/tsf -Iinclude/libc -I. -w
 
 TSF_OBJECT = $(BUILDDIR)/$(KERNDIR)/audio/midi_render.o
 
+# stb_image — SSE2 for float math (PNG gamma, JPEG DCT), suppress vendor warnings
+STB_CFLAGS = $(RENDERER_CFLAGS) -Ivendor/stb -Iinclude/libc -I. -w
+
+STB_OBJECT = $(BUILDDIR)/$(RENDDIR)/stb_image_decode.o
+
 ALL_OBJECTS = $(C_OBJECTS) $(RENDERER_OBJECTS) $(ASM_OBJECTS) \
               $(LUA_VENDOR_OBJECTS) $(LUA_KERNEL_OBJECTS) \
               $(LUA_MATH_OBJECT) $(LUA_ASM_OBJECT) \
               $(LWIP_VENDOR_OBJECTS) $(LWIP_KERNEL_OBJECTS) \
               $(BSSL_VENDOR_OBJECTS) $(BSSL_KERNEL_OBJECTS) \
-              $(MP3_OBJECT) $(TSF_OBJECT)
+              $(MP3_OBJECT) $(TSF_OBJECT) $(STB_OBJECT)
 
 # Module .kaos files (compiled from modules/*.c)
 MODULE_SOURCES = $(wildcard $(MODDIR)/*.c)
@@ -323,6 +328,11 @@ $(BUILDDIR)/$(KERNDIR)/audio/mp3_decode.o: $(KERNDIR)/audio/mp3_decode.c
 $(BUILDDIR)/$(KERNDIR)/audio/midi_render.o: $(KERNDIR)/audio/midi_render.c
 	@mkdir -p $(dir $@)
 	$(CC) $(TSF_CFLAGS) -c $< -o $@
+
+# stb_image wrapper — SSE2 for float decode math, suppress vendor warnings
+$(BUILDDIR)/$(RENDDIR)/stb_image_decode.o: $(RENDDIR)/stb_image_decode.c
+	@mkdir -p $(dir $@)
+	$(CC) $(STB_CFLAGS) -c $< -o $@
 
 # ===== lwIP compilation rules (must be before generic rules) =====
 

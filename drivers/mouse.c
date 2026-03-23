@@ -85,19 +85,19 @@ void mouse_handler(void) {
     uint8_t old_buttons = mouse_buttons_val;
     mouse_buttons_val = mouse_packet[0] & 0x07;
 
+    /* Always update absolute position (WM needs it for focus/hit-testing) */
+    mouse_x_val += dx;
+    mouse_y_val -= dy;  /* PS/2 Y is inverted vs screen coords */
+
+    if (mouse_x_val < 0) mouse_x_val = 0;
+    if (mouse_y_val < 0) mouse_y_val = 0;
+    if (mouse_x_val >= mouse_max_x) mouse_x_val = mouse_max_x - 1;
+    if (mouse_y_val >= mouse_max_y) mouse_y_val = mouse_max_y - 1;
+
+    /* Raw mode: also accumulate deltas for FPS-style input */
     if (raw_mode) {
         raw_dx += dx;
         raw_dy += dy;
-    } else {
-        /* Desktop mode: PS/2 Y is inverted vs screen coords */
-        mouse_x_val += dx;
-        mouse_y_val -= dy;
-
-        /* Clamp to bounds */
-        if (mouse_x_val < 0) mouse_x_val = 0;
-        if (mouse_y_val < 0) mouse_y_val = 0;
-        if (mouse_x_val >= mouse_max_x) mouse_x_val = mouse_max_x - 1;
-        if (mouse_y_val >= mouse_max_y) mouse_y_val = mouse_max_y - 1;
     }
 
     /* Push input events if in GUI mode */

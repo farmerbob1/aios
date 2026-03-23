@@ -473,6 +473,56 @@ static int l_set_transform(lua_State *L) {
 
 /* ── 3D Model ────────────────────────────────────────── */
 
+/* ── Runtime Model Construction ──────────────────────── */
+
+static int l_model_create(lua_State *L) {
+    uint32_t nv = (uint32_t)luaL_checkinteger(L, 1);
+    uint32_t nf = (uint32_t)luaL_checkinteger(L, 2);
+    chaos_gl_model_t *m = chaos_gl_model_create(nv, nf);
+    if (!m) { lua_pushnil(L); return 1; }
+    lua_pushlightuserdata(L, m);
+    return 1;
+}
+
+static int l_model_set_vertex(lua_State *L) {
+    chaos_gl_model_t *m = (chaos_gl_model_t *)lua_touserdata(L, 1);
+    uint32_t idx = (uint32_t)luaL_checkinteger(L, 2) - 1;
+    float x = (float)luaL_checknumber(L, 3);
+    float y = (float)luaL_checknumber(L, 4);
+    float z = (float)luaL_checknumber(L, 5);
+    if (m) chaos_gl_model_set_vertex(m, idx, x, y, z);
+    return 0;
+}
+
+static int l_model_set_normal(lua_State *L) {
+    chaos_gl_model_t *m = (chaos_gl_model_t *)lua_touserdata(L, 1);
+    uint32_t idx = (uint32_t)luaL_checkinteger(L, 2) - 1;
+    float nx = (float)luaL_checknumber(L, 3);
+    float ny = (float)luaL_checknumber(L, 4);
+    float nz = (float)luaL_checknumber(L, 5);
+    if (m) chaos_gl_model_set_normal(m, idx, nx, ny, nz);
+    return 0;
+}
+
+static int l_model_set_uv(lua_State *L) {
+    chaos_gl_model_t *m = (chaos_gl_model_t *)lua_touserdata(L, 1);
+    uint32_t idx = (uint32_t)luaL_checkinteger(L, 2) - 1;
+    float u = (float)luaL_checknumber(L, 3);
+    float v = (float)luaL_checknumber(L, 4);
+    if (m) chaos_gl_model_set_uv(m, idx, u, v);
+    return 0;
+}
+
+static int l_model_set_face(lua_State *L) {
+    chaos_gl_model_t *m = (chaos_gl_model_t *)lua_touserdata(L, 1);
+    uint32_t idx = (uint32_t)luaL_checkinteger(L, 2) - 1;
+    uint32_t v0 = (uint32_t)luaL_checkinteger(L, 3) - 1;
+    uint32_t v1 = (uint32_t)luaL_checkinteger(L, 4) - 1;
+    uint32_t v2 = (uint32_t)luaL_checkinteger(L, 5) - 1;
+    if (m) chaos_gl_model_set_face(m, idx, v0, v1, v2);
+    return 0;
+}
+
 static int l_load_model(lua_State *L) {
     const char *path = luaL_checkstring(L, 1);
     chaos_gl_model_t *model = chaos_gl_model_load(path);
@@ -538,6 +588,33 @@ static int l_draw_model(lua_State *L) {
             lua_pop(L, 1);
         }
         chaos_gl_shader_set_by_name("diffuse", &u);
+    } else if (strcmp(shader, "sprite") == 0) {
+        sprite_uniforms_t u = { .tex_handle = -1, .key_color = 0x00FF00FF,
+                                .light = 1.0f, .u0 = 0, .v0 = 0, .u1 = 1, .v1 = 1 };
+        if (lua_istable(L, 3)) {
+            lua_getfield(L, 3, "texture");
+            if (!lua_isnil(L, -1)) u.tex_handle = (int)lua_tointeger(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, 3, "key_color");
+            if (!lua_isnil(L, -1)) u.key_color = (uint32_t)lua_tointeger(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, 3, "light");
+            if (!lua_isnil(L, -1)) u.light = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, 3, "u0");
+            if (!lua_isnil(L, -1)) u.u0 = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, 3, "v0");
+            if (!lua_isnil(L, -1)) u.v0 = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, 3, "u1");
+            if (!lua_isnil(L, -1)) u.u1 = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, 3, "v1");
+            if (!lua_isnil(L, -1)) u.v1 = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+        }
+        chaos_gl_shader_set_by_name("sprite", &u);
     } else {
         /* Unknown shader — try by name with no uniforms */
         chaos_gl_shader_set_by_name(shader, NULL);
@@ -676,6 +753,11 @@ static const struct luaL_Reg chaosgl_funcs[] = {
     {"set_camera",           l_set_camera},
     {"set_perspective",      l_set_perspective},
     {"set_transform",        l_set_transform},
+    {"model_create",         l_model_create},
+    {"model_set_vertex",     l_model_set_vertex},
+    {"model_set_normal",     l_model_set_normal},
+    {"model_set_uv",         l_model_set_uv},
+    {"model_set_face",       l_model_set_face},
     {"load_model",           l_load_model},
     {"draw_model",           l_draw_model},
     {"draw_wireframe",       l_draw_wireframe},

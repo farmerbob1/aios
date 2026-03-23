@@ -153,6 +153,61 @@ void chaos_gl_draw_model(chaos_gl_model_t* model) {
     }
 }
 
+/* ── Runtime model construction ──────────────────────── */
+
+chaos_gl_model_t* chaos_gl_model_create(uint32_t vertex_count, uint32_t face_count) {
+    if (vertex_count == 0 || face_count == 0 ||
+        vertex_count > CHAOS_GL_MAX_MODEL_VERTS ||
+        face_count > CHAOS_GL_MAX_MODEL_FACES)
+        return NULL;
+
+    chaos_gl_model_t* m = (chaos_gl_model_t*)kmalloc(sizeof(chaos_gl_model_t));
+    if (!m) return NULL;
+
+    m->vertex_count = vertex_count;
+    m->normal_count = vertex_count;
+    m->uv_count     = vertex_count;
+    m->face_count   = face_count;
+
+    m->vertices = (struct cobj_vertex*)kmalloc(vertex_count * sizeof(struct cobj_vertex));
+    m->normals  = (struct cobj_normal*)kmalloc(vertex_count * sizeof(struct cobj_normal));
+    m->uvs      = (struct cobj_uv*)kmalloc(vertex_count * sizeof(struct cobj_uv));
+    m->faces    = (struct cobj_face*)kmalloc(face_count * sizeof(struct cobj_face));
+
+    if (!m->vertices || !m->normals || !m->uvs || !m->faces) {
+        chaos_gl_model_free(m);
+        return NULL;
+    }
+
+    memset(m->vertices, 0, vertex_count * sizeof(struct cobj_vertex));
+    memset(m->normals, 0, vertex_count * sizeof(struct cobj_normal));
+    memset(m->uvs, 0, vertex_count * sizeof(struct cobj_uv));
+    memset(m->faces, 0, face_count * sizeof(struct cobj_face));
+    return m;
+}
+
+void chaos_gl_model_set_vertex(chaos_gl_model_t* m, uint32_t idx, float x, float y, float z) {
+    if (!m || idx >= m->vertex_count) return;
+    m->vertices[idx] = (struct cobj_vertex){ x, y, z };
+}
+
+void chaos_gl_model_set_normal(chaos_gl_model_t* m, uint32_t idx, float nx, float ny, float nz) {
+    if (!m || idx >= m->normal_count) return;
+    m->normals[idx] = (struct cobj_normal){ nx, ny, nz };
+}
+
+void chaos_gl_model_set_uv(chaos_gl_model_t* m, uint32_t idx, float u, float v) {
+    if (!m || idx >= m->uv_count) return;
+    m->uvs[idx] = (struct cobj_uv){ u, v };
+}
+
+void chaos_gl_model_set_face(chaos_gl_model_t* m, uint32_t idx, uint32_t v0, uint32_t v1, uint32_t v2) {
+    if (!m || idx >= m->face_count) return;
+    m->faces[idx].v[0] = v0; m->faces[idx].v[1] = v1; m->faces[idx].v[2] = v2;
+    m->faces[idx].n[0] = v0; m->faces[idx].n[1] = v1; m->faces[idx].n[2] = v2;
+    m->faces[idx].t[0] = v0; m->faces[idx].t[1] = v1; m->faces[idx].t[2] = v2;
+}
+
 void chaos_gl_draw_model_wire(chaos_gl_model_t* model, uint32_t color) {
     if (!model) return;
     chaos_gl_surface_t* s = chaos_gl_get_bound_surface();

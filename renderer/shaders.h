@@ -34,6 +34,13 @@ typedef struct {
     float    ambient;
 } normalmap_uniforms_t;
 
+typedef struct {
+    int      tex_handle;
+    uint32_t key_color;
+    float    light;
+    float    u0, v0, u1, v1;
+} sprite_uniforms_t;
+
 /* Built-in shader functions */
 gl_vertex_out_t shader_flat_vert(gl_vertex_in_t in, void* uniforms);
 gl_frag_out_t   shader_flat_frag(gl_fragment_in_t in, void* uniforms);
@@ -46,3 +53,6 @@ gl_frag_out_t   shader_gouraud_frag(gl_fragment_in_t in, void* uniforms);
 
 gl_vertex_out_t shader_normalmap_vert(gl_vertex_in_t in, void* uniforms);
 gl_frag_out_t   shader_normalmap_frag(gl_fragment_in_t in, void* uniforms);
+
+gl_vertex_out_t shader_sprite_vert(gl_vertex_in_t in, void* uniforms);
+gl_frag_out_t   shader_sprite_frag(gl_fragment_in_t in, void* uniforms);

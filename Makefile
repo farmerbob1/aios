@@ -459,6 +459,7 @@ $(BUILDDIR)/os.img: $(BUILDDIR)/stage1.bin $(BUILDDIR)/stage2.bin $(BUILDDIR)/ke
 	@echo "Disk image: $(BUILDDIR)/os.img ($$(wc -c < $(BUILDDIR)/os.img | tr -d ' ') bytes)"
 
 # Run in QEMU (with E1000 NIC via user-mode networking)
+# Mouse grab: click inside QEMU window, then Ctrl+Alt+G to capture mouse for FPS games
 run: $(BUILDDIR)/os.img
 	$(QEMU) \
 		-cpu core2duo \

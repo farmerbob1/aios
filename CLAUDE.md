@@ -147,6 +147,18 @@ C-level shared WM registry (`aios.wm.*`) for cross-task window state. Each Lua t
 - **Security**: Path containment (packages can only write to `/apps/<name>/`), CRC-32 verification (via CPK), HTTPS transport (BearSSL).
 - **`aios.os.version()`**: Returns `"2.0"` for `min_aios` compatibility checks.
 
+### ChaosRIP — FPS Game (Phase 13, `harddrive/apps/rip/`)
+- **Doom/Quake hybrid** FPS: portal-based sectors, sprite enemies, hitscan weapons
+- **Renders at 320x200** through ChaosGL's public API exclusively — no special access
+- **Runtime model construction**: `chaos_gl.model_create()` + `set_vertex/normal/uv/face` for procedural sector geometry
+- **Sprite shader** (`renderer/shaders.c`): "sprite" shader with color-key discard, UV sub-rect for sprite sheets, flat lighting
+- **Mouse raw mode**: `aios.input.set_raw_mode(true)` + `aios.input.get_mouse_delta()` for FPS turning
+- **Audio**: `aios.audio.play(path)` for fire-and-forget WAV sound effects
+- **Game modules** (`lib/`): math_util, assets, level, sector, portal, player, collision, entities, ai, billboard, weapons, render, hud
+- **Level format**: Lua tables defining sectors (convex polygons with floor/ceil heights), portal edges, zones, entity spawns
+- **Assets**: All textures and sounds generated procedurally in `tools/populate_fs.py`
+- **App-relative require**: `require("lib/level")` finds `/apps/rip/lib/level.lua`
+
 ## Two Compiler Flag Sets
 
 **Kernel/drivers** (`CFLAGS`): `-mno-sse -mno-mmx -mno-sse2 -D__AIOS_KERNEL__` — prevents compiler from emitting SSE instructions that would corrupt FPU state during interrupts.
@@ -167,6 +179,7 @@ The scheduler's `fxsave`/`fxrstor` protects renderer tasks' XMM registers across
 | 8 | `documents/UI-toolkit-spec.md` |
 | 9-10 | `documents/WM-and-Desktop-spec.md` |
 | 12 | `documents/CPM-spec.md` |
+| 13 | `documents/ChaosRIP-game-spec.md` |
 
 Always re-read the relevant spec before implementing a phase. Specs are the source of truth for struct layouts, API signatures, acceptance tests, and design contracts.
 

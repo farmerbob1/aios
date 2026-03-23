@@ -61,7 +61,7 @@ Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
 - Shared AppWindow module and titlebar — zero boilerplate per app
 - Floating dock with app icon textures and live system stats
 - Boot splash with icon parade during module loading
-- 10 apps: File Browser, Terminal, Settings, Editor, Music Player, Image Viewer, 3D Viewer, System Monitor, Web Server, Package Manager
+- 11 apps: File Browser, Terminal, Settings, Editor, Music Player, Image Viewer, 3D Viewer, System Monitor, Web Server, Package Manager, ChaosRIP
 - Directory-based app packaging with `manifest.lua` metadata
 
 **Package Manager (Phase 12)**
@@ -72,6 +72,20 @@ Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
 - Terminal `pkg` commands for CLI package management
 - Path containment enforcement, CRC-32 verification, dependency resolution
 - Atomic database writes for crash safety
+
+**ChaosRIP (Phase 13)**
+- Doom/Quake-hybrid FPS running natively on AIOS
+- Portal-based sector visibility culling (Build/Quake style)
+- 320x200 software rendering through ChaosGL at 30+ fps
+- Runtime procedural model construction for sector geometry
+- Sprite shader with color-key discard and UV sub-rect for sprite sheets
+- Billboarded enemy sprites (8 rotation frames, 6-state AI)
+- Sector-based collision, wall sliding, portal traversal
+- Hitscan shotgun (7-pellet spread), pickups, locked doors, keys
+- HUD with health, ammo, weapon sprite, zone name transitions
+- WAV sound effects via AC97 audio subsystem
+- Full level: ~35 sectors across 4 zones (hub, armory, bridge, exit)
+- All assets procedurally generated during build
 
 **Networking (Phase 11)**
 - PCI bus enumeration driver

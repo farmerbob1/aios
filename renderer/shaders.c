@@ -21,6 +21,7 @@ void chaos_gl_shaders_init(void) {
     chaos_gl_shader_register("diffuse",   shader_diffuse_vert,   shader_diffuse_frag);
     chaos_gl_shader_register("gouraud",   shader_gouraud_vert,   shader_gouraud_frag);
     chaos_gl_shader_register("normalmap", shader_normalmap_vert, shader_normalmap_frag);
+    chaos_gl_shader_register("sprite",    shader_sprite_vert,    shader_sprite_frag);
 }
 
 int chaos_gl_shader_register(const char* name, gl_vert_fn vert, gl_frag_fn frag) {
@@ -239,6 +240,44 @@ gl_frag_out_t shader_normalmap_frag(gl_fragment_in_t in, void* uniforms) {
     int ri = (int)(r * light); if (ri > 255) ri = 255;
     int gi = (int)(g * light); if (gi > 255) gi = 255;
     int bi = (int)(b * light); if (bi > 255) bi = 255;
+
+    return GL_COLOR(CHAOS_GL_RGB(ri, gi, bi));
+}
+
+/* ── Sprite shader ───────────────────────────────────── */
+
+gl_vertex_out_t shader_sprite_vert(gl_vertex_in_t in, void* uniforms) {
+    (void)uniforms;
+    gl_vertex_out_t out;
+    mat4_t mvp = get_mvp();
+    out.clip_pos  = mat4_mul_vec4(mvp, vec4_from_vec3(in.position, 1.0f));
+    out.normal    = in.normal;
+    out.uv        = in.uv;
+    out.intensity = 1.0f;
+    return out;
+}
+
+gl_frag_out_t shader_sprite_frag(gl_fragment_in_t in, void* uniforms) {
+    sprite_uniforms_t* u = (sprite_uniforms_t*)uniforms;
+
+    const chaos_gl_texture_t* tex = chaos_gl_texture_get(u->tex_handle);
+    if (!tex) return GL_DISCARD;
+
+    /* Remap UV to sub-rect in sprite sheet */
+    float su = u->u0 + in.uv.x * (u->u1 - u->u0);
+    float sv = u->v0 + in.uv.y * (u->v1 - u->v0);
+    uint32_t texel = chaos_gl_tex_sample(tex, su, sv);
+
+    if (texel == u->key_color) return GL_DISCARD;
+
+    uint8_t b = texel & 0xFF;
+    uint8_t g = (texel >> 8) & 0xFF;
+    uint8_t r = (texel >> 16) & 0xFF;
+    float l = u->light;
+
+    int ri = (int)(r * l); if (ri > 255) ri = 255;
+    int gi = (int)(g * l); if (gi > 255) gi = 255;
+    int bi = (int)(b * l); if (bi > 255) bi = 255;
 
     return GL_COLOR(CHAOS_GL_RGB(ri, gi, bi));
 }

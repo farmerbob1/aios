@@ -4,6 +4,7 @@
 #include "../../include/types.h"
 #include "../../drivers/input.h"
 #include "../../drivers/keyboard.h"
+#include "../../drivers/mouse.h"
 #include "../../drivers/serial.h"
 
 #include "lua.h"
@@ -86,9 +87,27 @@ static int l_input_set_gui_mode(lua_State *L) {
     return 0;
 }
 
+/* aios.input.set_raw_mode(enabled) */
+static int l_input_set_raw_mode(lua_State *L) {
+    bool enabled = lua_toboolean(L, 1);
+    mouse_set_raw_mode(enabled);
+    return 0;
+}
+
+/* aios.input.get_mouse_delta() → dx, dy */
+static int l_input_get_mouse_delta(lua_State *L) {
+    int dx = 0, dy = 0;
+    mouse_get_delta(&dx, &dy);
+    lua_pushinteger(L, (lua_Integer)dx);
+    lua_pushinteger(L, (lua_Integer)dy);
+    return 2;
+}
+
 static const luaL_Reg input_funcs[] = {
     {"poll", l_input_poll},
     {"set_gui_mode", l_input_set_gui_mode},
+    {"set_raw_mode", l_input_set_raw_mode},
+    {"get_mouse_delta", l_input_get_mouse_delta},
     {NULL, NULL}
 };
 

@@ -47,3 +47,10 @@ chaos_gl_model_t* chaos_gl_model_load(const char* path);
 void              chaos_gl_model_free(chaos_gl_model_t* model);
 void              chaos_gl_draw_model(chaos_gl_model_t* model);
 void              chaos_gl_draw_model_wire(chaos_gl_model_t* model, uint32_t color);
+
+/* Runtime model construction (for procedural geometry) */
+chaos_gl_model_t* chaos_gl_model_create(uint32_t vertex_count, uint32_t face_count);
+void chaos_gl_model_set_vertex(chaos_gl_model_t* m, uint32_t idx, float x, float y, float z);
+void chaos_gl_model_set_normal(chaos_gl_model_t* m, uint32_t idx, float nx, float ny, float nz);
+void chaos_gl_model_set_uv(chaos_gl_model_t* m, uint32_t idx, float u, float v);
+void chaos_gl_model_set_face(chaos_gl_model_t* m, uint32_t idx, uint32_t v0, uint32_t v1, uint32_t v2);

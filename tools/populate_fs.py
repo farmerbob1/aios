@@ -420,6 +420,368 @@ def gen_test_png():
     idat_data = zlib.compress(bytes(raw_rows))
     return sig + _png_chunk(b'IHDR', ihdr_data) + _png_chunk(b'IDAT', idat_data) + _png_chunk(b'IEND', b'')
 
+# ═══════════════════════════════════════════════════════════════════════
+# ChaosRIP game asset generators
+# ═══════════════════════════════════════════════════════════════════════
+
+def _make_png_rgb(w, h, pixels):
+    """Create an RGB PNG from a flat pixel list [(r,g,b), ...]."""
+    raw_rows = bytearray()
+    for y in range(h):
+        raw_rows.append(0)  # filter: None
+        for x in range(w):
+            r, g, b = pixels[y * w + x]
+            raw_rows.extend([r, g, b])
+    sig = b'\x89PNG\r\n\x1a\n'
+    ihdr = struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)  # color_type=2 (RGB)
+    idat = zlib.compress(bytes(raw_rows))
+    return sig + _png_chunk(b'IHDR', ihdr) + _png_chunk(b'IDAT', idat) + _png_chunk(b'IEND', b'')
+
+def _make_png_rgba(w, h, pixels):
+    """Create an RGBA PNG from [(r,g,b,a), ...]."""
+    raw_rows = bytearray()
+    for y in range(h):
+        raw_rows.append(0)
+        for x in range(w):
+            raw_rows.extend(pixels[y * w + x])
+    sig = b'\x89PNG\r\n\x1a\n'
+    ihdr = struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)
+    idat = zlib.compress(bytes(raw_rows))
+    return sig + _png_chunk(b'IHDR', ihdr) + _png_chunk(b'IDAT', idat) + _png_chunk(b'IEND', b'')
+
+def _gen_tiled_tex(w, h, tile_w, tile_h, color1, color2, grout=None):
+    """Generate a tiled texture pattern."""
+    px = []
+    for y in range(h):
+        for x in range(w):
+            tx = x % tile_w
+            ty = y % tile_h
+            if grout and (tx == 0 or ty == 0):
+                px.append(grout)
+            elif ((x // tile_w) + (y // tile_h)) % 2 == 0:
+                px.append(color1)
+            else:
+                px.append(color2)
+    return px
+
+def gen_rip_brick1(w=128, h=128):
+    """Brown/red brick wall texture."""
+    px = []
+    for y in range(h):
+        for x in range(w):
+            row = y % 32
+            col = x % 64
+            offset = 32 if (y // 32) % 2 else 0
+            bx = (x + offset) % 64
+            if row < 2 or bx < 2:
+                px.append((80, 70, 60))  # grout
+            else:
+                v = 120 + ((x * 7 + y * 13) % 40)
+                px.append((v, int(v * 0.45), int(v * 0.3)))
+    return _make_png_rgb(w, h, px)
+
+def gen_rip_brick2(w=128, h=128):
+    """Grey stone brick."""
+    px = []
+    for y in range(h):
+        for x in range(w):
+            row = y % 32
+            col = x % 64
+            offset = 32 if (y // 32) % 2 else 0
+            bx = (x + offset) % 64
+            if row < 2 or bx < 2:
+                px.append((50, 50, 50))
+            else:
+                v = 100 + ((x * 11 + y * 7) % 50)
+                px.append((v, v, int(v * 0.95)))
+    return _make_png_rgb(w, h, px)
+
+def gen_rip_metal1(w=128, h=128):
+    """Metal plate with rivets."""
+    px = []
+    for y in range(h):
+        for x in range(w):
+            v = 130 + ((x * 3 + y * 5) % 30)
+            if (x % 32 < 2 or y % 32 < 2):
+                px.append((int(v * 0.6), int(v * 0.6), int(v * 0.7)))
+            elif (x % 32 in [4, 5] and y % 32 in [4, 5]):
+                px.append((180, 180, 200))  # rivet
+            else:
+                px.append((int(v * 0.7), int(v * 0.75), int(v * 0.85)))
+    return _make_png_rgb(w, h, px)
+
+def gen_rip_floor1(w=128, h=128):
+    """Stone floor tiles."""
+    px = _gen_tiled_tex(w, h, 32, 32, (100, 95, 85), (90, 85, 75), grout=(60, 55, 50))
+    return _make_png_rgb(w, h, px)
+
+def gen_rip_ceil1(w=128, h=128):
+    """Ceiling panels."""
+    px = _gen_tiled_tex(w, h, 64, 64, (120, 115, 110), (110, 105, 100), grout=(80, 75, 70))
+    return _make_png_rgb(w, h, px)
+
+def gen_rip_door1(w=128, h=128):
+    """Door texture."""
+    px = []
+    for y in range(h):
+        for x in range(w):
+            if x < 4 or x >= 124 or y < 4 or y >= 124:
+                px.append((60, 60, 70))  # frame
+            elif x < 8 or x >= 120 or y < 8 or y >= 120:
+                px.append((100, 100, 120))  # inner frame
+            else:
+                v = 80 + ((y * 3) % 30)
+                px.append((int(v * 0.5), int(v * 0.5), v))  # blue-ish door
+    return _make_png_rgb(w, h, px)
+
+def gen_rip_sky1(w=320, h=160):
+    """Sky gradient with dots for stars."""
+    import random
+    rng = random.Random(42)
+    px = []
+    for y in range(h):
+        t = y / h
+        r = int(40 + 20 * t)
+        g = int(40 + 30 * t)
+        b = int(80 - 20 * t)
+        for x in range(w):
+            if rng.random() < 0.003 and t < 0.5:
+                px.append((200, 200, 220))
+            else:
+                px.append((r, g, b))
+    return _make_png_rgb(w, h, px)
+
+def gen_rip_imp_spritesheet(w=512, h=512):
+    """Imp sprite sheet: 8x8 grid of 64x64 cells.
+    Rows: idle, walk1, walk2, attack1, attack2, pain, death1, death2.
+    Cols: 8 rotation angles.
+    Colored humanoid silhouettes on magenta background."""
+    MAGENTA = (255, 0, 255)
+    state_colors = [
+        (0, 180, 0),    # idle - green
+        (0, 150, 50),   # walk1
+        (0, 160, 30),   # walk2
+        (200, 50, 0),   # attack1 - red
+        (220, 30, 0),   # attack2
+        (200, 200, 0),  # pain - yellow
+        (120, 120, 120),# death1 - grey
+        (80, 80, 80),   # death2
+    ]
+    px = [MAGENTA] * (w * h)
+
+    for row in range(8):
+        for col in range(8):
+            color = state_colors[row]
+            cx, cy = col * 64 + 32, row * 64 + 32
+            # Draw a simple humanoid: head circle + body rect + arms
+            # Head
+            for dy in range(-8, -2):
+                for dx in range(-5, 6):
+                    if dx*dx + dy*dy < 36:
+                        px[(cy + dy) * w + (cx + dx)] = color
+            # Body
+            for dy in range(-2, 16):
+                for dx in range(-6, 7):
+                    if abs(dx) < 5:
+                        px[(cy + dy) * w + (cx + dx)] = color
+            # Legs
+            for dy in range(16, 26):
+                for dx in range(-5, 6):
+                    if (dx < -1 or dx > 1):
+                        px[(cy + dy) * w + (cx + dx)] = color
+            # Arms (vary by rotation for some variety)
+            arm_offset = (col - 4) * 1
+            for dy in range(0, 10):
+                lx = cx - 7 - abs(arm_offset)
+                rx = cx + 7 + abs(arm_offset)
+                if 0 <= lx < w:
+                    px[(cy + dy) * w + lx] = color
+                    if lx + 1 < w:
+                        px[(cy + dy) * w + lx + 1] = color
+                if 0 <= rx < w:
+                    px[(cy + dy) * w + rx] = color
+                    if rx - 1 >= 0:
+                        px[(cy + dy) * w + rx - 1] = color
+
+    return _make_png_rgb(w, h, px)
+
+def gen_rip_pickup(w, h, shape, color):
+    """Generate a pickup sprite on magenta background."""
+    MAGENTA = (255, 0, 255, 255)
+    px = [MAGENTA] * (w * h)
+    c = (*color, 255)
+    cx, cy = w // 2, h // 2
+
+    if shape == "cross":
+        for dy in range(-12, 13):
+            for dx in range(-12, 13):
+                if abs(dx) < 4 or abs(dy) < 4:
+                    y, x = cy + dy, cx + dx
+                    if 0 <= x < w and 0 <= y < h:
+                        px[y * w + x] = c
+    elif shape == "shells":
+        for i in range(3):
+            ox = cx - 10 + i * 10
+            for dy in range(-8, 9):
+                for dx in range(-3, 4):
+                    y, x = cy + dy, ox + dx
+                    if 0 <= x < w and 0 <= y < h:
+                        px[y * w + x] = c
+    elif shape == "key":
+        # Key head
+        for dy in range(-10, -2):
+            for dx in range(-6, 7):
+                if dx*dx + dy*dy < 49:
+                    y, x = cy + dy, cx + dx
+                    if 0 <= x < w and 0 <= y < h:
+                        px[y * w + x] = c
+        # Key shaft
+        for dy in range(-2, 14):
+            for dx in range(-2, 3):
+                y, x = cy + dy, cx + dx
+                if 0 <= x < w and 0 <= y < h:
+                    px[y * w + x] = c
+        # Key teeth
+        for teeth_y in [6, 10]:
+            for dx in range(2, 8):
+                y, x = cy + teeth_y, cx + dx
+                if 0 <= x < w and 0 <= y < h:
+                    px[y * w + x] = c
+    elif shape == "barrel":
+        for dy in range(-16, 17):
+            for dx in range(-10, 11):
+                if abs(dx) < 10 - abs(dy) // 4:
+                    y, x = cy + dy, cx + dx
+                    if 0 <= x < w and 0 <= y < h:
+                        px[y * w + x] = c
+
+    return _make_png_rgba(w, h, px)
+
+def gen_rip_weapon(w, h, firing=False):
+    """Generate weapon sprite (dark shape at bottom, optional muzzle flash)."""
+    MAGENTA = (255, 0, 255, 255)
+    px = [MAGENTA] * (w * h)
+    cx = w // 2
+    dark = (60, 60, 60, 255)
+    barrel = (80, 80, 80, 255)
+
+    # Gun barrel (horizontal at bottom half)
+    for y in range(h // 2, h - 5):
+        for x in range(cx - 15, cx + 16):
+            px[y * w + x] = dark
+    # Barrel tip
+    for y in range(h // 4, h // 2):
+        for x in range(cx - 4, cx + 5):
+            px[y * w + x] = barrel
+
+    if firing:
+        # Muzzle flash
+        flash = (255, 220, 50, 255)
+        flash2 = (255, 160, 0, 255)
+        for y in range(5, h // 4):
+            for x in range(cx - 10, cx + 11):
+                dy = y - 5
+                dx = x - cx
+                if dx*dx + dy*dy < (h // 4 - 5)**2:
+                    if dx*dx + dy*dy < (h // 8)**2:
+                        px[y * w + x] = flash
+                    else:
+                        px[y * w + x] = flash2
+
+    return _make_png_rgba(w, h, px)
+
+def gen_rip_icon32():
+    """32x32 dock icon: crosshair on dark background."""
+    w, h = 32, 32
+    px = []
+    cx, cy = 16, 16
+    for y in range(h):
+        for x in range(w):
+            dx, dy = x - cx, y - cy
+            d = math.sqrt(dx*dx + dy*dy)
+            if 7 < d < 10:
+                px.append((200, 50, 50))
+            elif (abs(dx) < 2 and abs(dy) < 12) or (abs(dy) < 2 and abs(dx) < 12):
+                px.append((200, 50, 50))
+            elif d < 14:
+                px.append((30, 30, 40))
+            else:
+                px.append((20, 20, 30))
+    return _make_png_rgb(w, h, px)
+
+def gen_rip_wav(duration_ms, freq, wav_type="sine", sample_rate=11025):
+    """Generate a simple WAV file."""
+    n_samples = int(sample_rate * duration_ms / 1000)
+    import random
+    rng = random.Random(freq)  # deterministic per-sound
+
+    pcm = bytearray()
+    for i in range(n_samples):
+        t = i / sample_rate
+        fade = max(0.0, 1.0 - (i / n_samples))
+        if wav_type == "sine":
+            val = math.sin(2 * math.pi * freq * t) * fade
+        elif wav_type == "noise":
+            val = (rng.random() * 2 - 1) * fade
+        elif wav_type == "sweep_up":
+            f = freq + (freq * 2) * (i / n_samples)
+            val = math.sin(2 * math.pi * f * t) * fade
+        elif wav_type == "sweep_down":
+            f = freq * 2 - freq * (i / n_samples)
+            val = math.sin(2 * math.pi * f * t) * fade
+        elif wav_type == "chime":
+            val = (math.sin(2 * math.pi * freq * t) +
+                   math.sin(2 * math.pi * freq * 1.5 * t) * 0.5) * fade / 1.5
+        else:
+            val = 0
+        sample = max(-128, min(127, int(val * 127)))
+        pcm.append(sample + 128)  # unsigned 8-bit
+
+    data_size = len(pcm)
+    hdr = bytearray()
+    hdr += b'RIFF'
+    hdr += struct.pack('<I', 36 + data_size)
+    hdr += b'WAVE'
+    hdr += b'fmt '
+    hdr += struct.pack('<IHHIIHH', 16, 1, 1, sample_rate, sample_rate, 1, 8)
+    hdr += b'data'
+    hdr += struct.pack('<I', data_size)
+    return bytes(hdr) + bytes(pcm)
+
+def gen_rip_assets():
+    """Generate all ChaosRIP game assets. Returns list of (rel_path, data)."""
+    assets = []
+
+    # Textures
+    assets.append(("data/textures/brick1.png", gen_rip_brick1()))
+    assets.append(("data/textures/brick2.png", gen_rip_brick2()))
+    assets.append(("data/textures/metal1.png", gen_rip_metal1()))
+    assets.append(("data/textures/floor1.png", gen_rip_floor1()))
+    assets.append(("data/textures/ceil1.png", gen_rip_ceil1()))
+    assets.append(("data/textures/door1.png", gen_rip_door1()))
+    assets.append(("data/textures/sky1.png", gen_rip_sky1()))
+    assets.append(("data/textures/imp.png", gen_rip_imp_spritesheet()))
+    assets.append(("data/textures/health.png", gen_rip_pickup(64, 64, "cross", (50, 200, 50))))
+    assets.append(("data/textures/ammo.png", gen_rip_pickup(64, 64, "shells", (200, 200, 50))))
+    assets.append(("data/textures/key_red.png", gen_rip_pickup(64, 64, "key", (220, 40, 40))))
+    assets.append(("data/textures/key_blue.png", gen_rip_pickup(64, 64, "key", (40, 40, 220))))
+    assets.append(("data/textures/barrel.png", gen_rip_pickup(64, 64, "barrel", (50, 150, 50))))
+    assets.append(("data/textures/shotgun_idle.png", gen_rip_weapon(80, 80, firing=False)))
+    assets.append(("data/textures/shotgun_fire.png", gen_rip_weapon(80, 80, firing=True)))
+    assets.append(("data/icon_32.png", gen_rip_icon32()))
+
+    # Sounds
+    assets.append(("data/sounds/shotgun.wav", gen_rip_wav(100, 200, "noise")))
+    assets.append(("data/sounds/imp_sight.wav", gen_rip_wav(200, 400, "sweep_up")))
+    assets.append(("data/sounds/imp_pain.wav", gen_rip_wav(50, 800, "sine")))
+    assets.append(("data/sounds/imp_death.wav", gen_rip_wav(300, 300, "sweep_down")))
+    assets.append(("data/sounds/pickup.wav", gen_rip_wav(150, 880, "chime")))
+    assets.append(("data/sounds/door.wav", gen_rip_wav(400, 80, "noise")))
+    assets.append(("data/sounds/pain.wav", gen_rip_wav(100, 150, "noise")))
+
+    return assets
+
+
 def gen_test_jpeg():
     """Generate a minimal valid JPEG (tiny 2x2 red square).
     This is a hardcoded minimal JFIF that any decoder should handle."""
@@ -1080,6 +1442,18 @@ def main():
                     data = mf.read()
                 writer.create_file(modules_ino, fn, data)
                 print(f"populate_fs: wrote /system/modules/{fn} ({len(data)} bytes)")
+
+        # ── Step 5a: ChaosRIP game assets ─────────────────
+        rip_assets = gen_rip_assets()
+        for rel_path, data in rip_assets:
+            full_path = f"/apps/rip/{rel_path}"
+            # Ensure parent directory exists
+            parent_path = '/'.join(full_path.split('/')[:-1])
+            parent_ino = writer.ensure_directory(parent_path)
+            filename = full_path.split('/')[-1]
+            writer.create_file(parent_ino, filename, data)
+            print(f"populate_fs: wrote {full_path} ({len(data)} bytes)")
+        print(f"populate_fs: generated {len(rip_assets)} ChaosRIP assets")
 
         # ── Step 5b: Generate icons (/system/icons/) ─────
         icons_ino = writer.ensure_directory("/system/icons")

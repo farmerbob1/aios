@@ -178,6 +178,16 @@ int pci_find_device(uint16_t vendor_id, uint16_t device_id, struct pci_device *o
     return -1;
 }
 
+int pci_find_class(uint8_t class_code, uint8_t subclass, struct pci_device *out) {
+    for (int i = 0; i < device_count; i++) {
+        if (devices[i].class_code == class_code && devices[i].subclass == subclass) {
+            if (out) *out = devices[i];
+            return i;
+        }
+    }
+    return -1;
+}
+
 void pci_enable_bus_mastering(struct pci_device *dev) {
     uint16_t cmd = pci_config_read16(dev->bus, dev->slot, dev->func, 0x04);
     cmd |= PCI_CMD_BUS_MASTER | PCI_CMD_MEM_SPACE | PCI_CMD_IO_SPACE;

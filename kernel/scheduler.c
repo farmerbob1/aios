@@ -29,6 +29,10 @@ static uint32_t last_ran[MAX_TASKS];
 static task_priority_t original_priority[MAX_TASKS];
 #define STARVATION_THRESHOLD 250  /* 1 second without running */
 
+bool scheduler_is_running(void) {
+    return scheduler_enabled;
+}
+
 /* CPU usage last-completed-window snapshot */
 static uint32_t last_window_idle;
 static uint32_t last_window_total;

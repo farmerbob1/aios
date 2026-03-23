@@ -7,6 +7,7 @@
 #include "../pmm.h"
 #include "../scheduler.h"
 #include "../chaos/chaos.h"
+#include "../chaos/block_cache.h"
 #include "../../drivers/serial.h"
 #include "../../drivers/timer.h"
 
@@ -77,14 +78,40 @@ static int l_os_fsinfo(lua_State *L) {
     return 1;
 }
 
+/* aios.os.cache_stats() */
+static int l_os_cache_stats(lua_State *L) {
+    cache_stats_t st = block_cache_get_stats();
+    lua_newtable(L);
+    lua_pushinteger(L, (lua_Integer)st.hits);
+    lua_setfield(L, -2, "hits");
+    lua_pushinteger(L, (lua_Integer)st.misses);
+    lua_setfield(L, -2, "misses");
+    lua_pushinteger(L, (lua_Integer)st.evictions);
+    lua_setfield(L, -2, "evictions");
+    lua_pushinteger(L, (lua_Integer)st.write_throughs);
+    lua_setfield(L, -2, "write_throughs");
+    lua_pushinteger(L, (lua_Integer)block_cache_hit_rate());
+    lua_setfield(L, -2, "hit_rate");
+    return 1;
+}
+
+/* aios.os.cache_flush() */
+static int l_os_cache_flush(lua_State *L) {
+    (void)L;
+    block_cache_flush();
+    return 0;
+}
+
 static const luaL_Reg os_funcs[] = {
-    {"ticks",     l_os_ticks},
-    {"millis",    l_os_millis},
-    {"frequency", l_os_frequency},
-    {"sleep",     l_os_sleep},
-    {"exit",      l_os_exit},
-    {"meminfo",   l_os_meminfo},
-    {"fsinfo",    l_os_fsinfo},
+    {"ticks",        l_os_ticks},
+    {"millis",       l_os_millis},
+    {"frequency",    l_os_frequency},
+    {"sleep",        l_os_sleep},
+    {"exit",         l_os_exit},
+    {"meminfo",      l_os_meminfo},
+    {"fsinfo",       l_os_fsinfo},
+    {"cache_stats",  l_os_cache_stats},
+    {"cache_flush",  l_os_cache_flush},
     {NULL, NULL}
 };
 

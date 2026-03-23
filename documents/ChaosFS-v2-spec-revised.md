@@ -21,7 +21,7 @@ ChaosFS v1 wasn't designed — it was accumulated. Features were bolted on as ne
 | Goal | Decision |
 |------|----------|
 | No fragmentation death spiral | Extent-based allocation — files can span non-contiguous blocks |
-| Works on real hardware | ATA/IDE PIO, 28-bit LBA, 512-byte sectors |
+| Works on real hardware | ATA/IDE DMA, 28-bit LBA, 512-byte sectors |
 | Fast enough for Lua's alloc pattern | 4KB blocks match page size, bitmap allocation is O(n/32) with next-fit |
 | Mountable on host for dev | Eventually: write a FUSE driver. For now: format tool and dump utility |
 | Self-contained | No external dependencies. Pure C, uses only our own ATA driver and heap |
@@ -521,7 +521,7 @@ int chaos_block_write(uint32_t block_idx, const void* buffer);
 
 LBA translation: `lba = fs_lba_start + (block_idx * 8)`  (8 sectors per 4KB block)
 
-No block cache. The bitmap and inode cache are explicit. Everything else is direct read/write. If read performance becomes a measurable bottleneck later, a block cache can be added here without changing any filesystem logic above this layer.
+**Block cache (512 entries, 2MB RAM, LRU, write-through).** The cache sits in this layer — `chaos_block_read()` checks cache before disk, `chaos_block_write()` writes through to disk and updates cache. Invalidation happens automatically in `chaos_free_block()`. The bitmap and inode caches remain separate (explicit, higher-level). Cache stats are exposed via `aios.os.cache_stats()` in Lua.
 
 ---
 

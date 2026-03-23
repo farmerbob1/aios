@@ -29,8 +29,10 @@
 #include "../drivers/mouse.h"
 #include "../drivers/input.h"
 #include "../drivers/ata.h"
+#include "../drivers/ata_dma.h"
 #include "../drivers/pci.h"
 #include "chaos/chaos.h"
+#include "chaos/block_cache.h"
 #include "../renderer/chaos_gl.h"
 #include "kaos/kaos.h"
 #include "boot_splash.h"
@@ -134,7 +136,13 @@ void kernel_main(struct boot_info* info) {
     r = pci_init();
     boot_log("PCI bus", r);
 
+    r = ata_dma_init();
+    boot_log("ATA DMA", r);
+
     /* ── Phase 4: ChaosFS ─────────────────────────── */
+    r = block_cache_init();
+    boot_log("Block cache", r);
+
     if (ata_is_present()) {
         r = chaos_mount(CHAOS_FS_LBA_START);
         boot_log("ChaosFS", r >= 0 ? INIT_OK : INIT_FAIL);

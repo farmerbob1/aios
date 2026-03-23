@@ -11,9 +11,11 @@
 #include "../drivers/mouse.h"
 #include "../drivers/input.h"
 #include "../drivers/ata.h"
+#include "../drivers/ata_dma.h"
 #include "heap.h"
 #include "scheduler.h"
 #include "boot_display.h"
+#include "chaos/block_cache.h"
 #include "phase3_tests.h"
 
 static bool test_timer_tick_rate(void) {
@@ -179,6 +181,138 @@ static bool test_ata(void) {
     return match;
 }
 
+static bool test_ata_dma_init(void) {
+    if (!ata_dma_available()) {
+        serial_printf("    (DMA not available — skip)\n");
+        return true;  /* not fatal */
+    }
+    serial_printf("    (DMA available)\n");
+    return true;
+}
+
+static bool test_ata_dma_read(void) {
+    if (!ata_dma_available() || !ata_is_present()) {
+        serial_printf("    (skip — DMA or disk unavailable)\n");
+        return true;
+    }
+
+    /* Read MBR via DMA, verify 0xAA55 signature */
+    uint8_t* dma_buf = (uint8_t*)kmalloc(512);
+    if (!dma_buf) return false;
+
+    if (ata_dma_read(0, 1, dma_buf) != 0) {
+        serial_printf("    (DMA read sector 0 failed)\n");
+        kfree(dma_buf);
+        return false;
+    }
+
+    uint16_t sig = (uint16_t)dma_buf[510] | ((uint16_t)dma_buf[511] << 8);
+    serial_printf("    (DMA MBR sig: 0x%04x)\n", (uint32_t)sig);
+    kfree(dma_buf);
+    return sig == 0xAA55;
+}
+
+static bool test_ata_dma_multi_sector(void) {
+    if (!ata_dma_available() || !ata_is_present()) {
+        serial_printf("    (skip)\n");
+        return true;
+    }
+
+    /* Read 8 sectors (4KB) via DMA, verify matches a second read */
+    uint8_t* buf1 = (uint8_t*)kmalloc(4096);
+    uint8_t* buf2 = (uint8_t*)kmalloc(4096);
+    if (!buf1 || !buf2) {
+        if (buf1) kfree(buf1);
+        if (buf2) kfree(buf2);
+        return false;
+    }
+
+    int ret1 = ata_dma_read(0, 8, buf1);
+    int ret2 = ata_dma_read(0, 8, buf2);
+
+    bool ok = (ret1 == 0 && ret2 == 0 && memcmp(buf1, buf2, 4096) == 0);
+    serial_printf("    (8-sector DMA read: %s)\n", ok ? "match" : "MISMATCH");
+    kfree(buf1);
+    kfree(buf2);
+    return ok;
+}
+
+static bool test_block_cache_hit(void) {
+    if (!block_cache_is_enabled() || !ata_is_present()) {
+        serial_printf("    (skip — cache or disk unavailable)\n");
+        return true;
+    }
+
+    /* Flush cache to start clean */
+    block_cache_flush();
+    cache_stats_t st0 = block_cache_get_stats();
+
+    uint8_t* buf = (uint8_t*)kmalloc(4096);
+    if (!buf) return false;
+
+    /* First read — should be a miss */
+    extern int chaos_block_read(uint32_t block_idx, void* buffer);
+    chaos_block_read(3, buf);
+
+    cache_stats_t st1 = block_cache_get_stats();
+    uint32_t misses_after_first = st1.misses - st0.misses;
+
+    /* Second read of same block — should be a hit */
+    chaos_block_read(3, buf);
+
+    cache_stats_t st2 = block_cache_get_stats();
+    uint32_t hits_after_second = st2.hits - st1.hits;
+
+    serial_printf("    (miss=%u, hit=%u)\n", misses_after_first, hits_after_second);
+    kfree(buf);
+    return (misses_after_first == 1 && hits_after_second == 1);
+}
+
+static bool test_block_cache_invalidate(void) {
+    if (!block_cache_is_enabled() || !ata_is_present()) {
+        serial_printf("    (skip)\n");
+        return true;
+    }
+
+    block_cache_flush();
+
+    uint8_t* buf = (uint8_t*)kmalloc(4096);
+    if (!buf) return false;
+
+    extern int chaos_block_read(uint32_t block_idx, void* buffer);
+
+    /* Read block 4 to populate cache */
+    chaos_block_read(4, buf);
+    cache_stats_t st1 = block_cache_get_stats();
+
+    /* Invalidate it */
+    block_cache_invalidate(4);
+
+    /* Read again — should be a miss, not a hit */
+    chaos_block_read(4, buf);
+    cache_stats_t st2 = block_cache_get_stats();
+
+    uint32_t new_misses = st2.misses - st1.misses;
+    serial_printf("    (post-invalidate misses=%u)\n", new_misses);
+    kfree(buf);
+    return (new_misses == 1);
+}
+
+static bool test_block_cache_stats(void) {
+    if (!block_cache_is_enabled()) {
+        serial_printf("    (skip)\n");
+        return true;
+    }
+
+    cache_stats_t st = block_cache_get_stats();
+    int rate = block_cache_hit_rate();
+    serial_printf("    (hits=%u misses=%u evictions=%u rate=%d%%)\n",
+                  st.hits, st.misses, st.evictions, rate);
+
+    /* Basic sanity: hits + misses should be > 0 after earlier tests */
+    return (st.hits + st.misses > 0);
+}
+
 static bool test_serial_output(void) {
     serial_print("    Phase 3 serial test\n");
     return true;
@@ -230,6 +364,12 @@ void phase3_acceptance_tests(void) {
         { "Mouse",              test_mouse },
         { "Input queue",        test_input_queue },
         { "ATA disk",           test_ata },
+        { "ATA DMA init",       test_ata_dma_init },
+        { "ATA DMA read",       test_ata_dma_read },
+        { "ATA DMA multi-sect", test_ata_dma_multi_sector },
+        { "Block cache hit",    test_block_cache_hit },
+        { "Block cache inval",  test_block_cache_invalidate },
+        { "Block cache stats",  test_block_cache_stats },
         { "Serial output",      test_serial_output },
         { "Boot display",       test_boot_display },
         { "Integration",        test_integration },

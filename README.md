@@ -14,12 +14,14 @@ Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
 - Preemptive scheduler (PIT-driven at 250Hz, 32 tasks max)
 - GDT/IDT/ISR/IRQ, FPU/SSE context switching
 - PS/2 keyboard and mouse drivers
-- ATA PIO disk driver
+- ATA disk driver with Bus Master DMA (PCI IDE controller)
+- Block cache (512-entry LRU, write-through, 2MB RAM)
 
 **ChaosFS (Phase 4)**
 - Custom extent-based filesystem at LBA 2048
 - 4KB blocks, inode-based, directory support
 - Full POSIX-like API (open, read, write, seek, stat, mkdir, unlink)
+- Block cache with O(1) hash lookup, automatic invalidation on block free
 
 **ChaosGL (Phase 5)**
 - Software 3D renderer with surface-based compositor
@@ -46,6 +48,7 @@ Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
 - Custom libc shims, ChaosFS-backed `require`/`dofile`
 - App-relative `require()` paths (apps can bundle private modules)
 - AIOS libraries: `aios.io`, `aios.os`, `aios.input`, `aios.task`, `aios.debug`, `aios.net`, `aios.cpk`
+- Block cache stats via `aios.os.cache_stats()` / `aios.os.cache_flush()`
 
 **UI Toolkit (Phase 8)**
 - 20 Lua widgets (Button, TextField, TextArea, ListView, TabView, Dialog, etc.)
@@ -164,7 +167,7 @@ kernel/         Kernel core (PMM, VMM, heap, scheduler, interrupts)
   lua/          Lua runtime integration and AIOS bindings
   net/          Networking (lwIP port, BearSSL port, Lua net API)
   audio/        Audio subsystem (WAV, MP3, MIDI)
-drivers/        Hardware drivers (serial, keyboard, mouse, ATA, PCI)
+drivers/        Hardware drivers (serial, keyboard, mouse, ATA/DMA, PCI)
 renderer/       ChaosGL software renderer, TTF fonts, compositor
 modules/        KAOS module source (e1000.c, ac97.c)
 include/        Shared headers (types, io, boot_info, kaos SDK)

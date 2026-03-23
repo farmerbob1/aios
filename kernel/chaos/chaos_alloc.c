@@ -3,6 +3,7 @@
  * inode table scan for allocation. */
 
 #include "chaos_types.h"
+#include "block_cache.h"
 #include "../../include/string.h"
 #include "../../drivers/serial.h"
 #include "../../kernel/heap.h"
@@ -107,6 +108,11 @@ uint32_t chaos_alloc_block(void) {
 
 void chaos_free_block(uint32_t block_idx) {
     if (!bitmap_cache || block_idx < data_start_val || block_idx >= total_blocks_val) return;
+
+    /* Invalidate block cache entry before freeing the block */
+    if (block_cache_is_enabled()) {
+        block_cache_invalidate(block_idx);
+    }
 
     uint32_t word_idx = block_idx / 32;
     uint32_t bit = block_idx % 32;

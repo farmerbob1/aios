@@ -54,3 +54,4 @@ struct task* task_get_current(void);
 struct task* task_get(int index);
 int  task_get_count(void);
 int  scheduler_get_cpu_usage(void);
+bool scheduler_is_running(void);

@@ -51,8 +51,8 @@ This is a hobby OS targeting i686 (QEMU `-cpu core2duo`). Everything runs in rin
 serial_init → vga_init → boot_info validation
 → PMM → VMM → Heap (Phase 1)
 → GDT/TSS → IDT → ISR → IRQ → FPU → Timer → Scheduler (Phase 2)
-→ Keyboard → Mouse → Framebuffer HAL → ATA (Phase 3)
-→ ChaosFS mount (Phase 4)
+→ Keyboard → Mouse → Framebuffer HAL → ATA → PCI → ATA DMA (Phase 3)
+→ Block Cache → ChaosFS mount (Phase 4)
 → sti → RDTSC calibrate → test_runner task → sleep forever
 ```
 
@@ -71,7 +71,8 @@ serial_init → vga_init → boot_info validation
 - **Framebuffer** is HAL-only (`fb_get_info()`). No drawing primitives — ALL rendering goes through ChaosGL (Phase 5).
 - **Keyboard**: IRQ1, E0 prefix state machine, scancodes remapped to 128+ for extended keys, dual-mode (GUI events or text-mode ASCII buffer).
 - **Mouse**: IRQ12, 3-byte PS/2 packet assembly with sync recovery, desktop mode + raw delta mode.
-- **ATA**: PIO mode, 28-bit LBA, 3 retries with soft reset. 512-byte sectors.
+- **ATA**: Bus Master DMA via PCI IDE controller (`drivers/ata_dma.c`). PIO only for IDENTIFY at init. 28-bit LBA, 512-byte sectors. 64KB bounce buffer, PRD table, polled completion.
+- **Block Cache** (`kernel/chaos/block_cache.c`): 512-entry LRU write-through cache (2MB). O(1) hash lookup. Sits in `chaos_block.c` between ChaosFS and ATA. Auto-invalidation in `chaos_free_block()`.
 
 ### ChaosFS (Phase 4, `kernel/chaos/`)
 Extent-based filesystem at LBA 2048 (1MB offset). 4KB blocks (8 sectors each). Key invariants:

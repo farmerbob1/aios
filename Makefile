@@ -108,6 +108,7 @@ C_SOURCES = \
     $(DRVDIR)/mouse.c \
     $(DRVDIR)/input.c \
     $(DRVDIR)/ata.c \
+    $(DRVDIR)/ata_dma.c \
     $(DRVDIR)/pci.c \
     $(KERNDIR)/net/netbuf.c \
     $(KERNDIR)/net/netif_bridge.c \
@@ -116,6 +117,7 @@ C_SOURCES = \
     $(KERNDIR)/audio/resample.c \
     $(KERNDIR)/audio/midi_parse.c \
     $(KERNDIR)/chaos/chaos_block.c \
+    $(KERNDIR)/chaos/block_cache.c \
     $(KERNDIR)/chaos/chaos_alloc.c \
     $(KERNDIR)/chaos/chaos_inode.c \
     $(KERNDIR)/chaos/chaos_format.c \

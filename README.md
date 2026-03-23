@@ -61,8 +61,17 @@ Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
 - Shared AppWindow module and titlebar — zero boilerplate per app
 - Floating dock with app icon textures and live system stats
 - Boot splash with icon parade during module loading
-- 9 apps: File Browser, Terminal, Settings, Editor, Music Player, Image Viewer, 3D Viewer, System Monitor, Web Server
+- 10 apps: File Browser, Terminal, Settings, Editor, Music Player, Image Viewer, 3D Viewer, System Monitor, Web Server, Package Manager
 - Directory-based app packaging with `manifest.lua` metadata
+
+**Package Manager (Phase 12)**
+- CPM (Chaos Package Manager) — install, update, remove apps from remote repo
+- Static GitHub Pages repository serving `.cpk` archives over HTTPS
+- Lua core library (`/system/lib/cpm.lua`) with full API: refresh, install, uninstall, update, search
+- GUI app with Browse/Installed/Settings tabs
+- Terminal `pkg` commands for CLI package management
+- Path containment enforcement, CRC-32 verification, dependency resolution
+- Atomic database writes for crash safety
 
 **Networking (Phase 11)**
 - PCI bus enumeration driver
@@ -92,6 +101,13 @@ Open the Terminal app from the desktop dock, then:
 
 ```
 help                    Show available commands
+pkg refresh             Fetch package index from repo
+pkg install <name>      Install a package
+pkg remove <name>       Uninstall a package
+pkg update [name]       Update one or all packages
+pkg search <query>      Search available packages
+pkg list                List installed packages
+pkg info <name>         Show package details
 ifconfig                Show network configuration (IP, mask, gateway, MAC)
 ping <host>             DNS resolve + TCP reachability test
 dns <host>              Resolve hostname to IP address

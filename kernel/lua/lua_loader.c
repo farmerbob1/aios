@@ -140,6 +140,7 @@ static int aios_searcher(lua_State *L) {
         "/system/ui/",
         "/system/layout/",
         "/system/net/",
+        "/system/lib/",
         "/system/",
         "/apps/",
         "/test/",

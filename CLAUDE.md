@@ -139,6 +139,14 @@ C-level shared WM registry (`aios.wm.*`) for cross-task window state. Each Lua t
 - **Text editor** (`edit.lua`): Line editing, cursor movement, Ctrl+S save, line numbers, status bar.
 - **App pattern**: create surface → `aios.wm.register()` → event loop with `aios.wm.poll_event()` → `aios.wm.unregister()` → destroy surface.
 
+### CPM — Chaos Package Manager (Phase 12, `harddrive/system/lib/cpm.lua`, `harddrive/apps/cpm/`)
+- **Core library** (`/system/lib/cpm.lua`): refresh, install, uninstall, update, search, info. Downloads `.cpk` from GitHub Pages repo via HTTPS, extracts to `/apps/<name>/`, tracks in `/system/cpm/installed.lua`.
+- **GUI app** (`/apps/cpm/`): Browse/Installed/Settings tabs. Refresh fetches repo index, Install/Update/Remove buttons.
+- **Terminal commands**: `pkg refresh|install|remove|update|search|list|info` in terminal app.
+- **Repository**: Static files on GitHub Pages (`farmerbob1/chaos-repo`). `repo.lua` index + `.cpk` packages. Published via `tools/cpk_publish.py`.
+- **Security**: Path containment (packages can only write to `/apps/<name>/`), CRC-32 verification (via CPK), HTTPS transport (BearSSL).
+- **`aios.os.version()`**: Returns `"2.0"` for `min_aios` compatibility checks.
+
 ## Two Compiler Flag Sets
 
 **Kernel/drivers** (`CFLAGS`): `-mno-sse -mno-mmx -mno-sse2 -D__AIOS_KERNEL__` — prevents compiler from emitting SSE instructions that would corrupt FPU state during interrupts.
@@ -158,6 +166,7 @@ The scheduler's `fxsave`/`fxrstor` protects renderer tasks' XMM registers across
 | 7 | `documents/Lua-runtime-spec.md` |
 | 8 | `documents/UI-toolkit-spec.md` |
 | 9-10 | `documents/WM-and-Desktop-spec.md` |
+| 12 | `documents/CPM-spec.md` |
 
 Always re-read the relevant spec before implementing a phase. Specs are the source of truth for struct layouts, API signatures, acceptance tests, and design contracts.
 

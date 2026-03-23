@@ -46,6 +46,7 @@ local function execute(cmd)
     if cmd == "help" then
         add_output("Commands: ls, cat, cd, mkdir, rm, mem, clear, help")
         add_output("Network:  ifconfig, ping, get, dns")
+        add_output("Packages: pkg refresh|install|remove|update|search|list|info")
         add_output("Or type any Lua expression")
     elseif cmd == "clear" then
         lines = {}
@@ -193,6 +194,76 @@ local function execute(cmd)
                     add_error("get: " .. tostring(headers or status or "failed"))
                 end
             end
+        end
+    elseif cmd:match("^pkg%s*") then
+        local sub = cmd:match("^pkg%s+(%S+)") or ""
+        local arg = cmd:match("^pkg%s+%S+%s+(.+)")
+        local pok, pcpm = pcall(require, "cpm")
+        if not pok then
+            add_error("pkg: cpm library not found")
+        elseif sub == "refresh" then
+            add_output("Refreshing package index...")
+            local result = pcpm.refresh(function(stage, detail)
+                add_output("  " .. stage .. ": " .. (detail.name or detail.source or ""))
+            end)
+            add_output("  " .. #(result.packages or {}) .. " package(s) found")
+            for _, e in ipairs(result.errors or {}) do
+                add_error("  " .. e.source .. ": " .. e.error)
+            end
+        elseif sub == "install" and arg then
+            add_output("Installing " .. arg .. "...")
+            local ok2, err2 = pcpm.install(arg, function(stage, detail)
+                add_output("  " .. stage .. ": " .. (detail.name or ""))
+            end)
+            if ok2 then add_output("  Installed!", 0x0044FF44)
+            else add_error("  " .. tostring(err2)) end
+        elseif sub == "remove" and arg then
+            local ok2, err2 = pcpm.uninstall(arg)
+            if ok2 then add_output("Removed " .. arg, 0x0044FF44)
+            else add_error(tostring(err2)) end
+        elseif sub == "update" then
+            if arg then
+                local ok2, err2 = pcpm.update(arg)
+                if ok2 then add_output("Updated " .. arg, 0x0044FF44)
+                else add_error(tostring(err2)) end
+            else
+                add_output("Updating all packages...")
+                local r = pcpm.update_all()
+                for _, n in ipairs(r.updated) do add_output("  Updated: " .. n, 0x0044FF44) end
+                for _, f in ipairs(r.failed) do add_error("  Failed: " .. f.name .. " - " .. f.error) end
+            end
+        elseif sub == "search" and arg then
+            local results = pcpm.search(arg)
+            if #results == 0 then add_output("No packages matching '" .. arg .. "'")
+            else
+                for _, p in ipairs(results) do
+                    add_output("  " .. p.name .. " v" .. p.version .. " - " .. (p.description or ""))
+                end
+            end
+        elseif sub == "list" then
+            local inst = pcpm.installed()
+            local count = 0
+            for name, info in pairs(inst) do
+                add_output("  " .. name .. " v" .. info.version .. " (" .. (info.source or "?") .. ")")
+                count = count + 1
+            end
+            if count == 0 then add_output("No packages installed via CPM") end
+        elseif sub == "info" and arg then
+            local info = pcpm.info(arg)
+            if not info then add_error("Package not found: " .. arg)
+            else
+                add_output("  Name: " .. (info.name or arg))
+                add_output("  Version: " .. (info.version or "?"))
+                add_output("  Author: " .. (info.author or "?"))
+                add_output("  Description: " .. (info.description or ""))
+                if info.installed then
+                    add_output("  Status: Installed (v" .. info.installed_version .. ")", 0x0044FF44)
+                else
+                    add_output("  Status: Not installed")
+                end
+            end
+        else
+            add_output("Usage: pkg refresh|install|remove|update|search|list|info [name]")
         end
     else
         -- Lua eval

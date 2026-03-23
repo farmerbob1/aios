@@ -78,6 +78,12 @@ static int l_os_fsinfo(lua_State *L) {
     return 1;
 }
 
+/* aios.os.version() */
+static int l_os_version(lua_State *L) {
+    lua_pushstring(L, "2.0");
+    return 1;
+}
+
 /* aios.os.cache_stats() */
 static int l_os_cache_stats(lua_State *L) {
     cache_stats_t st = block_cache_get_stats();
@@ -110,6 +116,7 @@ static const luaL_Reg os_funcs[] = {
     {"exit",         l_os_exit},
     {"meminfo",      l_os_meminfo},
     {"fsinfo",       l_os_fsinfo},
+    {"version",      l_os_version},
     {"cache_stats",  l_os_cache_stats},
     {"cache_flush",  l_os_cache_flush},
     {NULL, NULL}

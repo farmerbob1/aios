@@ -109,6 +109,13 @@ static int l_surface_get_size(lua_State *L) {
     return 2;
 }
 
+static int l_surface_set_scale(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    uint8_t scale = (uint8_t)luaL_checkinteger(L, 2);
+    chaos_gl_surface_set_scale(handle, scale);
+    return 0;
+}
+
 static int l_surface_set_color_key(lua_State *L) {
     int handle = (int)luaL_checkinteger(L, 1);
     bool enabled = lua_toboolean(L, 2);
@@ -706,6 +713,7 @@ static const struct luaL_Reg chaosgl_funcs[] = {
     {"surface_resize",       l_surface_resize},
     {"surface_get_size",     l_surface_get_size},
     {"surface_set_color_key",l_surface_set_color_key},
+    {"surface_set_scale",    l_surface_set_scale},
     /* 2D primitives */
     {"rect",                 l_rect},
     {"rect_outline",         l_rect_outline},

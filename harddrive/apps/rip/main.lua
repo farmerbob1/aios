@@ -20,7 +20,8 @@ local KEY_LEFT = 128 + 0x4B;  local KEY_RIGHT = 128 + 0x4D
 
 -- Create render surface
 local surface = chaos_gl.surface_create(RENDER_W, RENDER_H, true)
-chaos_gl.surface_set_position(surface, 352, 284)
+chaos_gl.surface_set_scale(surface, 2)
+chaos_gl.surface_set_position(surface, 192, 184)  -- centered: (1024-640)/2, (768-400)/2
 chaos_gl.surface_set_zorder(surface, 50)
 chaos_gl.surface_set_visible(surface, true)
 
@@ -98,10 +99,6 @@ while running do
         end
 
         Player.update(player, dt, input, level)
-        if input.turn_left or input.turn_right then
-            aios.debug.print(string.format("[rip] a=%.4f sin=%.4f cos=%.4f dt=%d\n",
-                player.angle, math.sin(player.angle), math.cos(player.angle), dt))
-        end
         Weapons.update(player, dt)
         Entities.update(entities, player, level, dt)
         Level.update_doors(level, dt)
@@ -121,13 +118,9 @@ while running do
 
     -- Render: bind surface FIRST so set_camera targets the right surface
     chaos_gl.surface_bind(surface)
-    -- Debug: encode angle in sky color (smooth = angle is fine, jump = angle bug)
-    local _sky_r = math.floor(math.abs(math.sin(player.angle)) * 60)
-    local _sky_b = math.floor(math.abs(math.cos(player.angle)) * 60)
-    chaos_gl.surface_clear(surface, mu.CHAOS_GL_RGB(_sky_r, 40, _sky_b + 30))
+    chaos_gl.surface_clear(surface, mu.CHAOS_GL_RGB(40, 40, 60))
     local camera = Player.set_camera(player)
     local visible = Portal.cull(level, player.sector_id, camera)
-    Render.draw_sky()
     Render.draw_sectors(level, visible)
     Render.draw_entities(entities, visible, player, camera, level)
     HUD.draw(player, dt)

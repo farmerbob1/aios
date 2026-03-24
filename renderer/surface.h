@@ -59,6 +59,7 @@ typedef struct {
     int        z_order;
 
     uint8_t    alpha;
+    uint8_t    scale;          /* display scale factor (1 = 1:1, 2 = 2x nearest-neighbor) */
     bool       has_color_key;
     uint32_t   color_key;
 
@@ -97,6 +98,7 @@ void chaos_gl_surface_set_alpha(int handle, uint8_t alpha);
 int  chaos_gl_surface_resize(int handle, int w, int h);
 void chaos_gl_surface_get_size(int handle, int* w, int* h);
 void chaos_gl_surface_set_color_key(int handle, bool enabled, uint32_t key);
+void chaos_gl_surface_set_scale(int handle, uint8_t scale);
 
 chaos_gl_surface_t* chaos_gl_get_surface(int handle);
 chaos_gl_surface_t* chaos_gl_get_bound_surface(void);

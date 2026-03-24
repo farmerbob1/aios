@@ -20,12 +20,8 @@ local function ensure_billboard_model()
 end
 
 function M.draw_sky(surface)
-    local sky_tex = Assets.get_texture("sky1")
-    if sky_tex then
-        chaos_gl.blit_keyed(0, 0, 320, 160, sky_tex, 0)
-    else
-        chaos_gl.rect(0, 0, RENDER_W, 160, mu.CHAOS_GL_RGB(40, 40, 60))
-    end
+    -- Sky fills top portion (above HUD). Texture is 320x160, just fill with color at higher res.
+    chaos_gl.rect(0, 0, RENDER_W, RENDER_H, mu.CHAOS_GL_RGB(40, 40, 60))
 end
 
 function M.draw_sectors(level, visible)

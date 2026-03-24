@@ -95,11 +95,12 @@ void chaos_gl_compose(uint32_t desktop_clear_color) {
 
         if (s->dirty) {
             any_dirty = true;
+            int ssc = s->scale > 0 ? s->scale : 1;
             /* Union this surface's current screen rect into dirty region */
             int sx0 = s->screen_x;
             int sy0 = s->screen_y;
-            int sx1 = s->screen_x + s->width;
-            int sy1 = s->screen_y + s->height;
+            int sx1 = s->screen_x + s->width * ssc;
+            int sy1 = s->screen_y + s->height * ssc;
             if (sx0 < dirty_x0) dirty_x0 = sx0;
             if (sy0 < dirty_y0) dirty_y0 = sy0;
             if (sx1 > dirty_x1) dirty_x1 = sx1;
@@ -109,8 +110,8 @@ void chaos_gl_compose(uint32_t desktop_clear_color) {
             if (s->position_changed) {
                 int px0 = s->prev_screen_x;
                 int py0 = s->prev_screen_y;
-                int px1 = s->prev_screen_x + s->width;
-                int py1 = s->prev_screen_y + s->height;
+                int px1 = s->prev_screen_x + s->width * ssc;
+                int py1 = s->prev_screen_y + s->height * ssc;
                 if (px0 < dirty_x0) dirty_x0 = px0;
                 if (py0 < dirty_y0) dirty_y0 = py0;
                 if (px1 > dirty_x1) dirty_x1 = px1;
@@ -176,11 +177,12 @@ void chaos_gl_compose(uint32_t desktop_clear_color) {
             continue;
         }
 
-        /* Surface screen-space rect */
+        /* Surface screen-space rect (with scale) */
+        int sc = s->scale > 0 ? s->scale : 1;
         int sx0 = s->screen_x;
         int sy0 = s->screen_y;
-        int sx1 = s->screen_x + s->width;
-        int sy1 = s->screen_y + s->height;
+        int sx1 = s->screen_x + s->width * sc;
+        int sy1 = s->screen_y + s->height * sc;
 
         /* Intersect with dirty region */
         int ix0 = int_max(sx0, dirty_x0);
@@ -197,8 +199,8 @@ void chaos_gl_compose(uint32_t desktop_clear_color) {
         const uint32_t* front = s->bufs[s->buf_index];
         uint8_t alpha = s->alpha;
 
-        if (alpha == 255 && !s->has_color_key) {
-            /* Opaque blit — fast path */
+        if (alpha == 255 && !s->has_color_key && sc == 1) {
+            /* Opaque blit — fast path (no scale) */
             for (int y = iy0; y < iy1; y++) {
                 int src_y = y - sy0;
                 int src_x = ix0 - sx0;
@@ -206,36 +208,46 @@ void chaos_gl_compose(uint32_t desktop_clear_color) {
                 uint32_t* drow = &comp_buffer[y * screen_w + ix0];
                 memcpy(drow, srow, (uint32_t)(ix1 - ix0) * 4);
             }
-        } else if (alpha == 255 && s->has_color_key) {
-            /* Opaque blit with color key transparency */
-            uint32_t key = s->color_key;
+        } else if (alpha == 255 && !s->has_color_key) {
+            /* Opaque blit with nearest-neighbor scale */
             for (int y = iy0; y < iy1; y++) {
-                int src_y = y - sy0;
-                int src_x = ix0 - sx0;
-                const uint32_t* srow = &front[src_y * s->width + src_x];
+                int src_y = (y - sy0) / sc;
                 uint32_t* drow = &comp_buffer[y * screen_w + ix0];
                 int span = ix1 - ix0;
                 for (int i = 0; i < span; i++) {
-                    if (srow[i] != key) drow[i] = srow[i];
+                    int src_x = (ix0 - sx0 + i) / sc;
+                    drow[i] = front[src_y * s->width + src_x];
+                }
+            }
+        } else if (alpha == 255 && s->has_color_key) {
+            /* Opaque blit with color key transparency (with scale) */
+            uint32_t key = s->color_key;
+            for (int y = iy0; y < iy1; y++) {
+                int src_y = (y - sy0) / sc;
+                uint32_t* drow = &comp_buffer[y * screen_w + ix0];
+                int span = ix1 - ix0;
+                for (int i = 0; i < span; i++) {
+                    int src_x = (ix0 - sx0 + i) / sc;
+                    uint32_t px = front[src_y * s->width + src_x];
+                    if (px != key) drow[i] = px;
                 }
             }
         } else {
-            /* Alpha blend: surface-level alpha */
+            /* Alpha blend: surface-level alpha (with scale) */
             uint32_t a = alpha;
             uint32_t inv_a = 255 - a;
 
             for (int y = iy0; y < iy1; y++) {
-                int src_y = y - sy0;
-                int src_x = ix0 - sx0;
-                const uint32_t* srow = &front[src_y * s->width + src_x];
+                int src_y = (y - sy0) / sc;
                 uint32_t* drow = &comp_buffer[y * screen_w + ix0];
                 int span = ix1 - ix0;
 
                 for (int i = 0; i < span; i++) {
-                    uint32_t sc = srow[i];
+                    int src_x = (ix0 - sx0 + i) / sc;
+                    uint32_t spx = front[src_y * s->width + src_x];
                     uint32_t dc = drow[i];
-                    uint32_t rb_s = sc & 0x00FF00FF;
-                    uint32_t g_s  = sc & 0x0000FF00;
+                    uint32_t rb_s = spx & 0x00FF00FF;
+                    uint32_t g_s  = spx & 0x0000FF00;
                     uint32_t rb_d = dc & 0x00FF00FF;
                     uint32_t g_d  = dc & 0x0000FF00;
                     uint32_t rb = ((rb_s * a + rb_d * inv_a + 0x00800080) >> 8) & 0x00FF00FF;

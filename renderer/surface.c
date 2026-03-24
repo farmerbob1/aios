@@ -94,6 +94,7 @@ int chaos_gl_surface_create(int w, int h, bool has_depth) {
     s->screen_y = 0;
     s->z_order = 0;
     s->alpha = 255;
+    s->scale = 1;
     s->visible = false;
     s->dirty = false;
 
@@ -341,6 +342,14 @@ void chaos_gl_surface_set_color_key(int handle, bool enabled, uint32_t key) {
     if (!valid_handle(handle)) return;
     surfaces[handle].has_color_key = enabled;
     surfaces[handle].color_key = key;
+}
+
+void chaos_gl_surface_set_scale(int handle, uint8_t scale) {
+    if (!valid_handle(handle)) return;
+    if (scale < 1) scale = 1;
+    if (scale > 4) scale = 4;
+    surfaces[handle].scale = scale;
+    surfaces[handle].dirty = true;
 }
 
 chaos_gl_surface_t* chaos_gl_get_surface(int handle) {

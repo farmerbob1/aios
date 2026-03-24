@@ -187,7 +187,7 @@ double cos(double x) {
     if (__builtin_isnan(x) || __builtin_isinf(x)) return __builtin_nan("");
     x = reduce_angle(x);
     if (x > HALF_PI) return -sin_core(x - HALF_PI);
-    if (x < -HALF_PI) return -sin_core(x + HALF_PI);
+    if (x < -HALF_PI) return sin_core(x + HALF_PI);
     return cos_core(x);
 }
 

@@ -4,20 +4,29 @@ local RENDER_W = 320
 local RENDER_H = 200
 local MAX_PORTAL_DEPTH = 16
 
+-- Project a world point to screen coordinates matching ChaosGL exactly.
+-- ChaosGL lookat: s = cross(forward, up), view_z = dot(offset, -forward)
+-- Perspective: clip_w = -view_z = dot(offset, forward)
 local function project_point(wx, wy, wz, cam)
-    -- Transform to view space
-    local dx = wx - cam.eye_x
-    local dy = wy - cam.eye_y
-    local dz = wz - cam.eye_z
-    -- View-space: right=X, up=Y, forward=-Z
-    local vx = dx * cam.right_x + dz * cam.right_z
-    local vy = dy
-    local vz = -(dx * cam.forward_x + dz * cam.forward_z)
+    local ox = wx - cam.eye_x
+    local oy = wy - cam.eye_y
+    local oz = wz - cam.eye_z
 
-    if vz < cam.z_near then return nil, nil, false end
+    -- clip_w = dot(offset, forward) — positive for points in front
+    local cw = ox * cam.fwd_x + oz * cam.fwd_z
+    if cw < cam.z_near then return nil, nil, false end
 
-    local sx = RENDER_W / 2 + (vx / vz) * cam.focal_x
-    local sy = RENDER_H / 2 - (vy / vz) * cam.focal_y
+    -- view_x = dot(offset, side) where side = cross(forward, up) = (-fwd_z, 0, fwd_x)
+    local vx = ox * (-cam.fwd_z) + oz * cam.fwd_x
+    local vy = oy
+
+    -- Match ChaosGL perspective: ndc_x = vx * focal / aspect / cw
+    local ndc_x = vx * cam.focal / cam.aspect / cw
+    local ndc_y = vy * cam.focal / cw
+
+    -- Match ChaosGL viewport: sx = (ndc_x + 1) * w/2, sy = (1 - ndc_y) * h/2
+    local sx = (ndc_x + 1.0) * RENDER_W * 0.5
+    local sy = (1.0 - ndc_y) * RENDER_H * 0.5
     return sx, sy, true
 end
 

@@ -23,8 +23,8 @@ function M.spawn_all(level)
             anim_timer  = 0,
             radius      = 0.4,
             height      = 1.5,
-            sprite_w    = 1.2,
-            sprite_h    = 1.5,
+            sprite_w    = 1.8,
+            sprite_h    = 1.8,
         }
 
         -- Set floor height
@@ -37,8 +37,8 @@ function M.spawn_all(level)
         if def.type ~= "imp" then
             ent.health = nil
             ent.ai_state = nil
-            ent.sprite_w = 0.8
-            ent.sprite_h = 0.8
+            ent.sprite_w = 1.5
+            ent.sprite_h = 1.5
             ent.radius = 0.5
         end
 

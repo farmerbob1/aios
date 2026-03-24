@@ -53,30 +53,30 @@ function M.generate_geometry(sector, level)
     local verts = sector.vertices
     local nv = #verts
 
-    -- Floor (fan from vertex 0)
+    -- Floor (fan from vertex 0, CW from above = front-facing in ChaosGL)
     local fg = get_group(groups, sector.floor_tex)
     for i = 2, nv - 1 do
         add_tri(fg,
             {verts[1].x, sector.floor_h, verts[1].z},
-            {verts[i].x, sector.floor_h, verts[i].z},
             {verts[i+1].x, sector.floor_h, verts[i+1].z},
+            {verts[i].x, sector.floor_h, verts[i].z},
             {0, 1, 0},
             {verts[1].x / 4, verts[1].z / 4},
-            {verts[i].x / 4, verts[i].z / 4},
-            {verts[i+1].x / 4, verts[i+1].z / 4})
+            {verts[i+1].x / 4, verts[i+1].z / 4},
+            {verts[i].x / 4, verts[i].z / 4})
     end
 
-    -- Ceiling (reversed winding)
+    -- Ceiling (CCW from above = front-facing when viewed from below)
     local cg = get_group(groups, sector.ceil_tex)
     for i = 2, nv - 1 do
         add_tri(cg,
             {verts[1].x, sector.ceil_h, verts[1].z},
-            {verts[i+1].x, sector.ceil_h, verts[i+1].z},
             {verts[i].x, sector.ceil_h, verts[i].z},
+            {verts[i+1].x, sector.ceil_h, verts[i+1].z},
             {0, -1, 0},
             {verts[1].x / 4, verts[1].z / 4},
-            {verts[i+1].x / 4, verts[i+1].z / 4},
-            {verts[i].x / 4, verts[i].z / 4})
+            {verts[i].x / 4, verts[i].z / 4},
+            {verts[i+1].x / 4, verts[i+1].z / 4})
     end
 
     -- Edges

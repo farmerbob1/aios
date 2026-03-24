@@ -27,8 +27,8 @@ chaos_gl.surface_set_visible(surface, true)
 -- Register with WM
 aios.wm.register(surface, "ChaosRIP", "/apps/rip/data/icon_32.png")
 
--- Enable mouse raw mode for FPS turning
-aios.input.set_raw_mode(true)
+-- Mouse turning disabled (QEMU grab required); using A/D keyboard turning
+-- aios.input.set_raw_mode(true)
 
 -- Load game
 aios.debug.print("[rip] loading level...\n")
@@ -64,9 +64,7 @@ while running do
         mouse_dx = 0,
     }
 
-    -- Get mouse delta
-    local mdx, mdy = aios.input.get_mouse_delta()
-    input.mouse_dx = mdx or 0
+    input.mouse_dx = 0
 
     -- Poll WM events
     while true do
@@ -100,6 +98,10 @@ while running do
         end
 
         Player.update(player, dt, input, level)
+        if input.turn_left or input.turn_right then
+            aios.debug.print(string.format("[rip] a=%.4f sin=%.4f cos=%.4f dt=%d\n",
+                player.angle, math.sin(player.angle), math.cos(player.angle), dt))
+        end
         Weapons.update(player, dt)
         Entities.update(entities, player, level, dt)
         Level.update_doors(level, dt)
@@ -117,12 +119,14 @@ while running do
         if not player.alive then game_state = "dead" end
     end
 
-    -- Render
+    -- Render: bind surface FIRST so set_camera targets the right surface
+    chaos_gl.surface_bind(surface)
+    -- Debug: encode angle in sky color (smooth = angle is fine, jump = angle bug)
+    local _sky_r = math.floor(math.abs(math.sin(player.angle)) * 60)
+    local _sky_b = math.floor(math.abs(math.cos(player.angle)) * 60)
+    chaos_gl.surface_clear(surface, mu.CHAOS_GL_RGB(_sky_r, 40, _sky_b + 30))
     local camera = Player.set_camera(player)
     local visible = Portal.cull(level, player.sector_id, camera)
-
-    chaos_gl.surface_bind(surface)
-    chaos_gl.surface_clear(surface, mu.CHAOS_GL_RGB(40, 40, 60))
     Render.draw_sky()
     Render.draw_sectors(level, visible)
     Render.draw_entities(entities, visible, player, camera, level)
@@ -139,7 +143,6 @@ while running do
 end
 
 -- Cleanup
-aios.input.set_raw_mode(false)
 Render.cleanup()
 Level.free(level)
 Assets.free_all()

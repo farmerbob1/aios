@@ -15,8 +15,8 @@ local function ensure_billboard_model()
     if billboard_model then return end
     billboard_model = chaos_gl.model_create(6, 2)
     -- Faces stay fixed; vertices updated per-sprite
-    chaos_gl.model_set_face(billboard_model, 1, 1, 2, 3)
-    chaos_gl.model_set_face(billboard_model, 2, 4, 5, 6)
+    chaos_gl.model_set_face(billboard_model, 1, 1, 3, 2)
+    chaos_gl.model_set_face(billboard_model, 2, 4, 6, 5)
 end
 
 function M.draw_sky(surface)

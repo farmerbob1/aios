@@ -77,18 +77,19 @@ function M.set_camera(player)
     )
     chaos_gl.set_perspective(60, 0, 0.1, 50.0)
 
-    -- Compute focal length for portal projection
+    -- Camera data for portal culling (must match ChaosGL's lookat + perspective)
     local fov_rad = 60 * math.pi / 180
-    local focal_x = (320 / 2) / math.tan(fov_rad / 2)
-    local focal_y = focal_x  -- square pixels at this aspect
+    local focal = 1.0 / math.tan(fov_rad * 0.5)
+    local aspect = 320 / 200
 
     return {
         eye_x = player.x, eye_y = eye_y, eye_z = player.z,
+        fwd_x = dx, fwd_z = dz,
+        -- World-space right (for billboards): perpendicular to forward, pointing physically right
         right_x = dz, right_z = -dx,
-        forward_x = dx, forward_z = dz,
         z_near = 0.1,
-        focal_x = focal_x,
-        focal_y = focal_y,
+        focal = focal,
+        aspect = aspect,
     }
 end
 

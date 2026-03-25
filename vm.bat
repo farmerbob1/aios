@@ -45,7 +45,7 @@ if errorlevel 1 (
     %VBOX% modifyvm "%VMNAME%" --firmware efi
     %VBOX% modifyvm "%VMNAME%" --graphicscontroller vboxvga
     %VBOX% modifyvm "%VMNAME%" --audio-driver dsound --audio-out on
-    %VBOX% modifyvm "%VMNAME%" --nic1 nat
+    %VBOX% modifyvm "%VMNAME%" --nic1 nat --nictype1 82540EM
     %VBOX% modifyvm "%VMNAME%" --uart1 0x3F8 4 --uart-mode1 file %~dp0build\serial.log
     %VBOX% storagectl "%VMNAME%" --name "SATA" --add sata --controller IntelAhci --portcount 1
 ) else (

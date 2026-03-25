@@ -5,6 +5,9 @@ local Assets = require("lib/assets")
 local HUD_Y = 160
 local zone_name_text = ""
 local zone_name_timer = 0
+local fps_accum = 0
+local fps_frames = 0
+local fps_display = 0
 
 function M.show_zone_name(name, duration)
     zone_name_text = name
@@ -49,6 +52,18 @@ function M.draw(player, dt)
     if wtex then
         chaos_gl.blit_keyed(120, HUD_Y - 40, 80, 80, wtex, 0xFFFF00FF)
     end
+
+    -- FPS counter (top-right)
+    fps_accum = fps_accum + dt
+    fps_frames = fps_frames + 1
+    if fps_accum >= 1000 then
+        fps_display = fps_frames
+        fps_frames = 0
+        fps_accum = fps_accum - 1000
+    end
+    local fps_str = tostring(fps_display) .. " FPS"
+    local fw = chaos_gl.text_width(fps_str)
+    chaos_gl.text(318 - fw, 2, fps_str, mu.CHAOS_GL_RGB(200, 200, 200), 0, 0)
 
     -- Zone name (fading)
     if zone_name_timer > 0 then

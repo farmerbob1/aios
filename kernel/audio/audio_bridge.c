@@ -123,8 +123,6 @@ int audio_source_create(uint32_t ring_samples) {
             sources[i].finished = false;
             sources[i].id = next_id++;
 
-            serial_printf("[audio] source %d created (ring=%u samples)\n",
-                          sources[i].id, ring_samples);
             return sources[i].id;
         }
     }

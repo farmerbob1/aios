@@ -7,6 +7,7 @@
 #include "../include/boot_info.h"
 
 init_result_t ata_init(void);
+init_result_t ata_init_ahci(void);  /* AHCI fallback — call after pci_init() */
 int      ata_read_sectors(uint32_t lba, uint32_t count, void* buffer);
 int      ata_write_sectors(uint32_t lba, uint32_t count, const void* buffer);
 bool     ata_is_present(void);

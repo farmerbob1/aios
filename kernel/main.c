@@ -40,7 +40,7 @@
 #include "net/netif_bridge.h"
 #include "net/entropy.h"
 
-#define CHAOS_FS_LBA_START 2048  /* 1MB offset into disk */
+#define CHAOS_FS_LBA_START 67584  /* 33MB offset into GPT disk (after ESP) */
 
 /* ================================================================
  * Kernel Main
@@ -136,7 +136,14 @@ void kernel_main(struct boot_info* info) {
     r = pci_init();
     boot_log("PCI bus", r);
 
+    /* Try AHCI if legacy IDE wasn't found (needs PCI scan first) */
+    if (!ata_is_present()) {
+        r = ata_init_ahci();
+        boot_log("AHCI/SATA disk", r);
+    }
+
     r = ata_dma_init();
+    if (!ata_is_present()) r = INIT_WARN;  /* DMA not needed for AHCI */
     boot_log("ATA DMA", r);
 
     /* ── Phase 4: ChaosFS ─────────────────────────── */

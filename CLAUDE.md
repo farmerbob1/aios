@@ -8,15 +8,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # REQUIRED: set PATH before any make/build commands
 export PATH="/c/i686-elf-tools/bin:/c/msys64/usr/bin:/c/msys64/mingw64/bin:$PATH"
 
-# Build everything (kernel + 512MB disk image + format ChaosFS)
+# Build everything (kernel + UEFI bootloader + 512MB GPT disk image + ChaosFS)
 make clean && make all
 
-# Run in QEMU (interactive, serial on stdio)
+# Run in QEMU with UEFI firmware (interactive, serial on stdio)
 make run
 
 # Run headless and capture serial output for test verification
 rm -f build/serial.log && timeout 90 "/c/Program Files/qemu/qemu-system-x86_64.exe" \
-  -cpu core2duo -m 256 -vga std -drive format=raw,file=build/os.img \
+  -cpu core2duo -m 256 -vga std \
+  -drive if=pflash,format=raw,readonly=on,file="/c/Program Files/qemu/share/edk2-x86_64-code.fd" \
+  -drive format=raw,file=build/os.img \
   -serial file:build/serial.log -no-reboot -no-shutdown -display none 2>/dev/null
 
 # Check test results from serial log
@@ -32,8 +34,10 @@ grep -E "Phase [0-9]:|accept" build/serial.log
 | nasm | `/c/msys64/usr/bin/nasm` |
 | make | `/c/msys64/usr/bin/make` |
 | QEMU | `/c/Program Files/qemu/qemu-system-x86_64.exe` |
+| OVMF Code | `/c/Program Files/qemu/share/edk2-x86_64-code.fd` |
+| OVMF Vars | `/c/Program Files/qemu/share/edk2-x86_64-vars.fd` |
+| UEFI CC | `/c/msys64/mingw64/bin/x86_64-w64-mingw32-gcc` — compiles UEFI bootloader (PE/COFF) |
 | Python 3 | `python3` (in PATH) |
-| Host GCC | `/c/msys64/mingw64/bin/gcc` — has Windows temp dir permission issues, use Python for host tools instead |
 
 ## Project Status
 
@@ -43,8 +47,8 @@ Phases 0-10 COMPLETE. 213 tests (211 passing, 2 pre-existing Phase 2 timing flak
 
 This is a hobby OS targeting i686 (QEMU `-cpu core2duo`). Everything runs in ring 0, identity-mapped (virt == phys). No userspace, no higher-half kernel.
 
-### Boot Chain
-`stage1.asm` (MBR, 512B) → `stage2.asm` (real mode, 8KB: E820, VBE, ELF loader) → `kernel_main()` at physical 0x100000. The `boot_info` struct at 0x10000 passes memory map, framebuffer info, and kernel location to the kernel. Linker script (`linker.ld`) places kernel at 0x100000; entry point is `kernel_main`.
+### Boot Chain (UEFI)
+EDK2 firmware (`edk2-x86_64-code.fd`) → `BOOTX64.EFI` (x86_64 UEFI app, `boot/uefi_boot.c`) → ExitBootServices → 64→32 mode transition (`boot/transition.asm`) → `kernel_main()` at physical 0x100000. The UEFI bootloader populates the same `boot_info` struct at 0x10000 (memory map via GetMemoryMap→E820, framebuffer via GOP, kernel ELF loaded from ESP). Linker script (`linker.ld`) places kernel at 0x100000; entry point is `kernel_main`.
 
 ### Kernel Init Order (kernel/main.c)
 ```
@@ -75,16 +79,19 @@ serial_init → vga_init → boot_info validation
 - **Block Cache** (`kernel/chaos/block_cache.c`): 512-entry LRU write-through cache (2MB). O(1) hash lookup. Sits in `chaos_block.c` between ChaosFS and ATA. Auto-invalidation in `chaos_free_block()`.
 
 ### ChaosFS (Phase 4, `kernel/chaos/`)
-Extent-based filesystem at LBA 2048 (1MB offset). 4KB blocks (8 sectors each). Key invariants:
+Extent-based filesystem at LBA 67584 (33MB offset, after GPT+ESP). 4KB blocks (8 sectors each). Key invariants:
 - `chaos_inode_evict()` must be called BEFORE `chaos_free_inode()` to prevent cache ghost writes
 - `chaos_open()` checks for free fd BEFORE creating files on disk
 - Write ordering: data blocks → inode → directory entry. Bitmap is write-through.
 - On-disk structs in `chaos_types.h` (shared with host tools via `__AIOS_KERNEL__` guard). Inode = 128 bytes (pad1[32]), dirent = 64 bytes (reserved[4]).
 
-### Disk Image Layout
-`build/os.img` is 512MB:
-- Sectors 0–2047: Stage1 + Stage2 + Kernel ELF (1MB)
-- Sectors 2048+: ChaosFS (formatted and populated by `python3 tools/populate_fs.py` during build)
+### Disk Image Layout (GPT + UEFI)
+`build/os.img` is 512MB (GPT partitioned):
+- LBA 0: Protective MBR
+- LBA 1-33: GPT headers and partition entries
+- LBA 2048-67583: ESP partition (FAT32, 32MB) — contains `\EFI\BOOT\BOOTX64.EFI` and `\kernel.elf`
+- LBA 67584+: ChaosFS partition (formatted and populated by `python3 tools/populate_fs.py` during build)
+- Built by `python3 tools/build_disk.py` (GPT + FAT32 + file embedding)
 
 ### KAOS Module System (Phase 6, `kernel/kaos/`)
 Runtime kernel module loading. Modules are `.kaos` files (ELF ET_REL relocatable objects) stored on ChaosFS under `/system/modules/`. Key components:
@@ -159,11 +166,13 @@ C-level shared WM registry (`aios.wm.*`) for cross-task window state. Each Lua t
 - **Assets**: All textures and sounds generated procedurally in `tools/populate_fs.py`
 - **App-relative require**: `require("lib/level")` finds `/apps/rip/lib/level.lua`
 
-## Two Compiler Flag Sets
+## Three Compiler Flag Sets
 
-**Kernel/drivers** (`CFLAGS`): `-mno-sse -mno-mmx -mno-sse2 -D__AIOS_KERNEL__` — prevents compiler from emitting SSE instructions that would corrupt FPU state during interrupts.
+**Kernel/drivers** (`CFLAGS`): `-mno-sse -mno-mmx -mno-sse2 -D__AIOS_KERNEL__` — prevents compiler from emitting SSE instructions that would corrupt FPU state during interrupts. Uses `i686-elf-gcc`.
 
-**Renderer** (`RENDERER_CFLAGS`): `-msse2 -mfpmath=sse` — SSE2 enabled for ChaosGL SIMD inner loops. ONLY for files under `renderer/`.
+**Renderer** (`RENDERER_CFLAGS`): `-msse2 -mfpmath=sse` — SSE2 enabled for ChaosGL SIMD inner loops. ONLY for files under `renderer/`. Uses `i686-elf-gcc`.
+
+**UEFI Bootloader** (`UEFI_CFLAGS`): `-ffreestanding -mno-red-zone -fshort-wchar` — x86_64 PE/COFF for UEFI firmware. Uses `x86_64-w64-mingw32-gcc` (MinGW). ONLY for files under `boot/`.
 
 The scheduler's `fxsave`/`fxrstor` protects renderer tasks' XMM registers across context switches.
 
@@ -189,6 +198,7 @@ Tests are in `kernel/phase{1..10}_tests.c`. A `test_runner_main` task (PRIORITY_
 
 ## Host Tools
 
+- `tools/build_disk.py` — creates GPT disk image with FAT32 ESP (embeds BOOTX64.EFI + kernel.elf) and ChaosFS partition
 - `tools/populate_fs.py` — unified tool: formats ChaosFS, copies `harddrive/` contents, generates test assets, injects compiled .kaos modules (run automatically by Makefile)
 - `tools/chaosfs_explorer.py` — tkinter GUI for browsing/editing ChaosFS images (launch via `explorer.bat`)
 - `harddrive/` — static files placed on the ChaosFS disk image verbatim (directory structure preserved)

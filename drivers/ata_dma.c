@@ -42,6 +42,7 @@
 #define ATA_LBA_HI      0x1F5
 #define ATA_DRIVE_HEAD  0x1F6
 #define ATA_STATUS_CMD  0x1F7
+#define ATA_CONTROL     0x3F6
 
 #define ATA_CMD_READ_DMA  0xC8
 #define ATA_CMD_WRITE_DMA 0xCA
@@ -140,10 +141,15 @@ init_result_t ata_dma_init(void) {
                   DMA_BUFFER_PAGES * 4096, PTE_PRESENT | PTE_WRITABLE);
     dma_buffer = (uint8_t*)dma_buffer_phys;
 
-    /* Step 6: Register IRQ14 handler */
+    /* Step 6: Clear nIEN — ensure ATA drive interrupts are enabled.
+     * UEFI firmware may leave nIEN=1 (interrupts disabled) after
+     * ExitBootServices(), which prevents DMA completion detection. */
+    outb(ATA_CONTROL, 0x00);
+
+    /* Step 7: Register IRQ14 handler */
     irq_register_handler(14, ata_dma_irq_handler);
 
-    /* Step 7: Clear BMI status register */
+    /* Step 8: Clear BMI status register */
     outb(bmi_base + BMI_STATUS_PRIMARY, BMI_STATUS_IRQ | BMI_STATUS_ERROR);
 
     dma_avail = true;

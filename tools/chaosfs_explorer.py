@@ -31,7 +31,7 @@ CHAOS_BLOCK_NULL = 0
 # ── ChaosFS Disk Interface ────────────────────────────────────────
 
 class ChaosFS:
-    def __init__(self, image_path, lba_start=2048):
+    def __init__(self, image_path, lba_start=67584):
         self.image_path = image_path
         self.lba_start = lba_start
         self.f = None

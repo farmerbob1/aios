@@ -1,13 +1,16 @@
 # AIOS v2 Makefile
-# Cross-compiler toolchain
+# Cross-compiler toolchain (kernel — i686 ELF)
 CC      = i686-elf-gcc
 LD      = i686-elf-ld
 AS      = nasm
 OBJCOPY = i686-elf-objcopy
 
-# QEMU — use x86_64 binary even though our OS is 32-bit.
-# Avoids TCG warning about core2duo's long mode flag on i386 emulator.
+# UEFI bootloader toolchain (x86_64 PE/COFF via MinGW)
+UEFI_CC = x86_64-w64-mingw32-gcc
+
+# QEMU + UEFI firmware (single pflash — NVRAM not persisted)
 QEMU = "/c/Program Files/qemu/qemu-system-x86_64.exe"
+OVMF_CODE = /c/Program Files/qemu/share/edk2-x86_64-code.fd
 
 # Directories
 BUILDDIR = build
@@ -76,6 +79,12 @@ BSSL_KERN_CFLAGS = $(CFLAGS) -Iinclude/libc -I$(BSSLDIR)/inc -I$(BSSLDIR)/src \
 # Assembler flags
 NASMFLAGS_BIN = -f bin
 NASMFLAGS_ELF = -f elf32 -g
+NASMFLAGS_WIN64 = -f win64
+
+# UEFI bootloader flags (x86_64 PE/COFF, freestanding, MS ABI default)
+UEFI_CFLAGS  = -ffreestanding -fno-stack-protector -mno-red-zone -fshort-wchar \
+               -Wall -Wextra -O2 -std=c11 -Iboot
+UEFI_LDFLAGS = -nostdlib -Wl,--subsystem,10 -e efi_main
 
 # Host tools
 PYTHON = python3
@@ -109,6 +118,7 @@ C_SOURCES = \
     $(DRVDIR)/input.c \
     $(DRVDIR)/ata.c \
     $(DRVDIR)/ata_dma.c \
+    $(DRVDIR)/ahci.c \
     $(DRVDIR)/pci.c \
     $(KERNDIR)/net/netbuf.c \
     $(KERNDIR)/net/netif_bridge.c \
@@ -279,28 +289,26 @@ MODULE_KAOS    = $(patsubst $(MODDIR)/%.c,$(BUILDDIR)/$(MODDIR)/%.kaos,$(MODULE_
 
 # ===== Targets =====
 
-.PHONY: all clean run run-debug stage2_check
+.PHONY: all clean run run-debug
 
 all: $(BUILDDIR)/os.img
 	@echo "Build complete: $(BUILDDIR)/os.img"
 
-# Stage 1 (raw binary, 512 bytes)
-$(BUILDDIR)/stage1.bin: $(BOOTDIR)/stage1.asm
+# UEFI bootloader — C source to object (x86_64 PE/COFF)
+$(BUILDDIR)/$(BOOTDIR)/uefi_boot.o: $(BOOTDIR)/uefi_boot.c $(BOOTDIR)/uefi.h
 	@mkdir -p $(dir $@)
-	$(AS) $(NASMFLAGS_BIN) $< -o $@
+	$(UEFI_CC) $(UEFI_CFLAGS) -c $< -o $@
 
-# Stage 2 (raw binary, max 8KB)
-$(BUILDDIR)/stage2.bin: $(BOOTDIR)/stage2.asm
+# UEFI bootloader — 64→32 mode transition assembly
+$(BUILDDIR)/$(BOOTDIR)/transition.o: $(BOOTDIR)/transition.asm
 	@mkdir -p $(dir $@)
-	$(AS) $(NASMFLAGS_BIN) $< -o $@
+	$(AS) $(NASMFLAGS_WIN64) $< -o $@
 
-# Stage 2 size check — MUST be <= 8192 bytes (16 sectors)
-stage2_check: $(BUILDDIR)/stage2.bin
-	@SIZE=$$(wc -c < $(BUILDDIR)/stage2.bin | tr -d ' '); \
-	if [ $$SIZE -gt 8192 ]; then \
-		echo "ERROR: Stage 2 is $$SIZE bytes (max 8192)"; exit 1; \
-	fi; \
-	echo "Stage 2 size: $$SIZE / 8192 bytes"
+# Link UEFI bootloader → BOOTX64.EFI (PE32+ EFI application)
+$(BUILDDIR)/BOOTX64.EFI: $(BUILDDIR)/$(BOOTDIR)/uefi_boot.o $(BUILDDIR)/$(BOOTDIR)/transition.o
+	@mkdir -p $(dir $@)
+	$(UEFI_CC) $(UEFI_LDFLAGS) $^ -o $@
+	@echo "UEFI bootloader: $@ ($$(wc -c < $@ | tr -d ' ') bytes)"
 
 # Module source -> .kaos (compiled ET_REL object, no linking)
 $(BUILDDIR)/$(MODDIR)/%.kaos: $(MODDIR)/%.c
@@ -443,28 +451,22 @@ $(BUILDDIR)/kernel.elf: $(ALL_OBJECTS) linker.ld
 	@mkdir -p $(dir $@)
 	$(CC) $(LDFLAGS) $(ALL_OBJECTS) -o $@ -lgcc
 
-# Disk image assembly
-# Layout: sector 0      = stage1 (512B)
-#         sectors 1-16  = stage2 (8192B, zero-padded)
-#         sector 17+    = kernel ELF (variable size)
-$(BUILDDIR)/os.img: $(BUILDDIR)/stage1.bin $(BUILDDIR)/stage2.bin $(BUILDDIR)/kernel.elf stage2_check $(MODULE_KAOS)
-	@echo "Assembling disk image..."
-	cp $(BUILDDIR)/stage1.bin $(BUILDDIR)/os.img
-	dd if=$(BUILDDIR)/stage2.bin of=$(BUILDDIR)/stage2_padded.bin bs=8192 conv=sync 2>/dev/null
-	cat $(BUILDDIR)/stage2_padded.bin >> $(BUILDDIR)/os.img
-	cat $(BUILDDIR)/kernel.elf >> $(BUILDDIR)/os.img
-	@# Pad to 512MB, format ChaosFS at LBA 2048, populate filesystem
-	truncate -s 512M $(BUILDDIR)/os.img
-	$(PYTHON) tools/populate_fs.py $(BUILDDIR)/os.img 2048 $(BUILDDIR)/$(MODDIR)
+# UEFI disk image assembly
+# Layout: GPT + ESP (FAT32, LBA 2048-67583) + ChaosFS (LBA 67584+)
+$(BUILDDIR)/os.img: $(BUILDDIR)/BOOTX64.EFI $(BUILDDIR)/kernel.elf $(MODULE_KAOS)
+	@echo "Assembling UEFI disk image..."
+	$(PYTHON) tools/build_disk.py $(BUILDDIR)/os.img $(BUILDDIR)/BOOTX64.EFI $(BUILDDIR)/kernel.elf
+	$(PYTHON) tools/populate_fs.py $(BUILDDIR)/os.img 67584 $(BUILDDIR)/$(MODDIR)
 	@echo "Disk image: $(BUILDDIR)/os.img ($$(wc -c < $(BUILDDIR)/os.img | tr -d ' ') bytes)"
 
-# Run in QEMU (with E1000 NIC via user-mode networking)
+# Run in QEMU with UEFI firmware (E1000 NIC, user-mode networking)
 # Mouse grab: click inside QEMU window, then Ctrl+Alt+G to capture mouse for FPS games
 run: $(BUILDDIR)/os.img
 	$(QEMU) \
 		-cpu core2duo \
 		-m 256 \
 		-vga std \
+		-drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" \
 		-drive format=raw,file=$(BUILDDIR)/os.img \
 		-netdev user,id=net0,hostfwd=tcp::9090-:9090 \
 		-device e1000,netdev=net0 \
@@ -480,6 +482,7 @@ run-debug: $(BUILDDIR)/os.img
 		-cpu core2duo \
 		-m 256 \
 		-vga std \
+		-drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" \
 		-drive format=raw,file=$(BUILDDIR)/os.img \
 		-netdev user,id=net0,hostfwd=tcp::9090-:9090 \
 		-device e1000,netdev=net0 \

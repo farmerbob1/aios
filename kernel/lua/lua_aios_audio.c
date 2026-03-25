@@ -144,9 +144,6 @@ static void wav_decode_task(void) {
     uint32_t bytes_per_sample = bits / 8;
     uint32_t frame_size = channels * bytes_per_sample;
 
-    serial_printf("[audio] WAV decode: %uHz %uch %ubit, %u bytes\n",
-                  src_rate, channels, bits, data_size);
-
     /* Temp buffers for conversion */
     uint32_t chunk_frames = 2048;
     int16_t *stereo_buf = (int16_t *)kmalloc(chunk_frames * 2 * sizeof(int16_t));
@@ -228,7 +225,6 @@ done:
     /* Mark source as finished so mixer knows to stop when ring drains */
     audio_source_mark_finished(ctx->source_id);
     ctx->decode_done = true;
-    serial_printf("[audio] decode done: %s\n", ctx->path);
 }
 
 /* ── MP3 Decode Task ───────────────────────────────────── */
@@ -321,7 +317,6 @@ static void mp3_decode_task(void) {
 done:
     audio_source_mark_finished(ctx->source_id);
     ctx->decode_done = true;
-    serial_printf("[audio] MP3 decode done: %s\n", ctx->path);
 }
 
 /* ── MIDI Decode Task ──────────────────────────────────── */
@@ -353,8 +348,6 @@ static int load_soundfont(void) {
         uint32_t file_size = (uint32_t)st.size;
         if (file_size == 0) continue;
 
-        serial_printf("[audio] SoundFont: %s (%u bytes)\n", paths[i], file_size);
-
         int fd = chaos_open(paths[i], CHAOS_O_RDONLY);
         if (fd < 0) continue;
 
@@ -383,7 +376,6 @@ static int load_soundfont(void) {
         if (total == file_size) {
             cached_sf2_data = data;
             cached_sf2_size = total;
-            serial_printf("[audio] SoundFont loaded: %s (%u bytes)\n", paths[i], total);
             return 0;
         }
 
@@ -536,7 +528,6 @@ static void midi_decode_task(void) {
 done:
     audio_source_mark_finished(ctx->source_id);
     ctx->decode_done = true;
-    serial_printf("[audio] MIDI decode done: %s\n", ctx->path);
 }
 
 /* ── Lua: aios.audio.play(path) ────────────────────────── */
@@ -653,7 +644,6 @@ static int l_audio_play(lua_State *L) {
         ctx->task_id = task_create("midi_decode", midi_decode_task, 1);
     }
 
-    serial_printf("[audio] play: %s (source=%d)\n", path, src_id);
     lua_pushinteger(L, src_id);
     return 1;
 }

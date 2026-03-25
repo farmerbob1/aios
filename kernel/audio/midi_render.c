@@ -115,8 +115,6 @@ struct midi_renderer *midi_renderer_create(const uint8_t *sf2_data, uint32_t sf2
     }
 
     tsf_set_output(r->synth, TSF_STEREO_INTERLEAVED, sample_rate, 0.0f);
-    serial_printf("[midi] SoundFont loaded (%u bytes), %d presets\n",
-                  sf2_size, tsf_get_presetcount(r->synth));
     return r;
 }
 

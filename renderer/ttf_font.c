@@ -203,8 +203,6 @@ int chaos_gl_font_load(const char *path, float size_px) {
 
     font->in_use = true;
 
-    serial_printf("[ttf] loaded '%s' at %dpx: ascent=%d descent=%d height=%d\n",
-                  path, (int)size_px, font->ascent, font->descent, font->height_px);
     return handle;
 }
 

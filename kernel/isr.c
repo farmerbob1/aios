@@ -65,6 +65,20 @@ void isr_common_handler(struct registers* regs) {
         uint32_t cr2;
         __asm__ __volatile__("mov %%cr2, %0" : "=r"(cr2));
         serial_printf("  CR2 (fault addr): 0x%08x\n", cr2);
+
+        /* Diagnose page table state for the faulting address */
+        uint32_t cr3_val;
+        __asm__ __volatile__("mov %%cr3, %0" : "=r"(cr3_val));
+        uint32_t* pd = (uint32_t*)(cr3_val & 0xFFFFF000);
+        uint32_t pd_idx = cr2 >> 22;
+        uint32_t pt_idx = (cr2 >> 12) & 0x3FF;
+        uint32_t pde = pd[pd_idx];
+        serial_printf("  PDE[%u]=0x%08x", pd_idx, pde);
+        if (pde & 1) {
+            uint32_t* pt = (uint32_t*)(pde & 0xFFFFF000);
+            serial_printf(" PTE[%u]=0x%08x", pt_idx, pt[pt_idx]);
+        }
+        serial_printf("\n");
     }
 
     kernel_panic("Unhandled CPU exception");

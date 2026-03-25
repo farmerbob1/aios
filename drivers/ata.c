@@ -4,6 +4,7 @@
 
 #include "ata.h"
 #include "ata_dma.h"
+#include "ahci.h"
 #include "../include/io.h"
 #include "../drivers/serial.h"
 
@@ -32,6 +33,7 @@
 
 static bool     ata_present_val = false;
 static uint32_t ata_sectors = 0;
+static bool     use_ahci = false;
 
 /* ── Helpers ───────────────────────────────────────── */
 
@@ -67,7 +69,7 @@ init_result_t ata_init(void) {
 
     uint8_t s = inb(ATA_STATUS_CMD);
     if (s == 0xFF) {
-        serial_print("  ATA: no drive detected (floating bus)\n");
+        serial_print("  ATA: no legacy IDE drive (floating bus)\n");
         return INIT_WARN;
     }
 
@@ -117,6 +119,7 @@ int ata_read_sectors(uint32_t lba, uint32_t count, void* buffer) {
     if (!ata_present_val || count == 0 || !buffer) return -1;
     if (count > 128) return -1;
     if (lba + count > ata_sectors) return -1;
+    if (use_ahci) return ahci_read_sectors(lba, count, buffer);
     return ata_dma_read(lba, count, buffer);
 }
 
@@ -124,7 +127,21 @@ int ata_write_sectors(uint32_t lba, uint32_t count, const void* buffer) {
     if (!ata_present_val || count == 0 || !buffer) return -1;
     if (count > 128) return -1;
     if (lba + count > ata_sectors) return -1;
+    if (use_ahci) return ahci_write_sectors(lba, count, buffer);
     return ata_dma_write(lba, count, buffer);
+}
+
+/* ── AHCI fallback (call after pci_init) ──────────── */
+
+init_result_t ata_init_ahci(void) {
+    if (ata_present_val) return INIT_OK;  /* Legacy IDE already working */
+    init_result_t r = ahci_init();
+    if (r == INIT_OK) {
+        ata_present_val = true;
+        ata_sectors = ahci_get_sector_count();
+        use_ahci = true;
+    }
+    return r;
 }
 
 /* ── Queries ───────────────────────────────────────── */

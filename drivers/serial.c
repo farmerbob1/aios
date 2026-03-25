@@ -16,14 +16,7 @@ init_result_t serial_init(void) {
     outb(PORT + 2, 0xC7);   /* Enable FIFO, clear, 14-byte threshold */
     outb(PORT + 4, 0x0B);   /* IRQs enabled, RTS/DSR set */
 
-    /* Loopback test */
-    outb(PORT + 4, 0x1E);   /* Set in loopback mode */
-    outb(PORT + 0, 0xAE);   /* Send test byte */
-    if (inb(PORT + 0) != 0xAE) {
-        return INIT_FAIL;
-    }
-
-    /* Disable loopback, set normal operation */
+    /* Set normal operation (OUT2 enables IRQ line, RTS+DTR set) */
     outb(PORT + 4, 0x0F);
     return INIT_OK;
 }

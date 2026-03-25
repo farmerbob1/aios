@@ -156,8 +156,6 @@ int chaos_gl_texture_load(const char* path) {
     textures[handle].phys_addr = phys;
     textures[handle].pages     = pages;
 
-    serial_printf("[texture] loaded '%s' as handle %d (%ux%u, %u pages, alpha=%d)\n",
-                  path, handle, w, h, pages, has_alpha);
     return handle;
 }
 

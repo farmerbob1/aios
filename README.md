@@ -4,6 +4,12 @@ A hobby operating system targeting i686 (32-bit x86), built from scratch with a 
 
 Runs in QEMU and VirtualBox (UEFI boot). Everything executes in ring 0 with identity-mapped memory.
 
+## Screenshots
+
+| Desktop | Settings | ChaosRIP |
+|---------|----------|----------|
+| ![Desktop](screenshots/desktop.png) | ![Settings](screenshots/settings.png) | ![ChaosRIP](screenshots/chaosrip.png) |
+
 ## Features
 
 **Kernel (Phases 0-3)**

@@ -18,9 +18,15 @@ function Dialog.new(opts)
     return self
 end
 
-function Dialog:show(screen_w, screen_h)
-    screen_w = screen_w or 1024
-    screen_h = screen_h or 768
+function Dialog:show(screen_w, screen_h, owner_surface)
+    self._owner_surface = owner_surface
+
+    -- Position relative to owner window so clicks stay within its bounds
+    local ox, oy, ow, oh = 0, 0, screen_w or 1024, screen_h or 768
+    if owner_surface then
+        ox, oy = chaos_gl.surface_get_position(owner_surface)
+        ow, oh = chaos_gl.surface_get_size(owner_surface)
+    end
 
     -- Calculate dialog size
     local pad = 16
@@ -35,10 +41,10 @@ function Dialog:show(screen_w, screen_h)
     self.w = dlg_w
     self.h = dlg_h
 
-    -- Modal overlay
+    -- Modal overlay covers owner window
     if self.modal then
-        self.overlay_surface = chaos_gl.surface_create(screen_w, screen_h, false)
-        chaos_gl.surface_set_position(self.overlay_surface, 0, 0)
+        self.overlay_surface = chaos_gl.surface_create(ow, oh, false)
+        chaos_gl.surface_set_position(self.overlay_surface, ox, oy)
         chaos_gl.surface_set_zorder(self.overlay_surface, 190)
         chaos_gl.surface_set_visible(self.overlay_surface, true)
         local alpha = self:get_style("dialog_overlay_alpha") or 128
@@ -48,9 +54,9 @@ function Dialog:show(screen_w, screen_h)
         chaos_gl.surface_present(self.overlay_surface)
     end
 
-    -- Dialog surface
-    local dx = (screen_w - dlg_w) // 2
-    local dy = (screen_h - dlg_h) // 2
+    -- Dialog surface — centered within owner
+    local dx = ox + (ow - dlg_w) // 2
+    local dy = oy + (oh - dlg_h) // 2
     self.surface = chaos_gl.surface_create(dlg_w, dlg_h, false)
     chaos_gl.surface_set_position(self.surface, dx, dy)
     chaos_gl.surface_set_zorder(self.surface, 195)
@@ -130,9 +136,18 @@ end
 function Dialog:on_input(event)
     if not self.visible then return false end
 
+    -- Translate owner-surface-relative coords to dialog-relative
+    local function to_dialog_coords(ex, ey)
+        local sx, sy = 0, 0
+        if self._owner_surface then
+            sx, sy = chaos_gl.surface_get_position(self._owner_surface)
+        end
+        return (ex + sx) - (self._screen_x or 0),
+               (ey + sy) - (self._screen_y or 0)
+    end
+
     if event.type == core.EVENT_MOUSE_MOVE then
-        local mx = event.mouse_x - (self._screen_x or 0)
-        local my = event.mouse_y - (self._screen_y or 0)
+        local mx, my = to_dialog_coords(event.mouse_x, event.mouse_y)
         local btn_y = self.h - 32 - 16
         self._hovered_btn = 0
         for i, btn in ipairs(self.buttons) do

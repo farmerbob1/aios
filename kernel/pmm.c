@@ -15,6 +15,7 @@ static uint32_t total_pages;
 static uint32_t used_pages;
 static uint32_t max_phys_addr_val;
 static uint32_t next_alloc_hint;    /* bit index for next-fit */
+static uint32_t usable_ram_pages;   /* actual RAM pages (from E820 type 1) */
 
 /* ── Bit helpers ────────────────────────────────────────── */
 static inline void bitmap_set(uint32_t bit) {
@@ -164,16 +165,27 @@ init_result_t pmm_init(struct boot_info* info) {
     /* Bitmap's own pages */
     mark_range_used(bitmap_phys_addr, bitmap_phys_addr + bitmap_size);
 
-    /* Step 9: Count free pages */
+    /* Step 9: Count free pages and actual RAM */
     uint32_t free_count = 0;
     for (uint32_t i = 0; i < total_pages; i++) {
         if (!bitmap_test(i)) free_count++;
     }
     used_pages = total_pages - free_count;
+    usable_ram_pages = free_count + (used_pages - (total_pages - free_count)) ;
+
+    /* Count actual RAM from E820 type-1 entries */
+    usable_ram_pages = 0;
+    for (uint32_t i = 0; i < info->e820_count; i++) {
+        if (info->e820_entries[i].type == 1) {
+            uint64_t len = info->e820_entries[i].length;
+            usable_ram_pages += (uint32_t)(len / PAGE_SIZE);
+        }
+    }
 
     next_alloc_hint = 0;
 
-    serial_printf("[PMM] free=%u used=%u total=%u\n", free_count, used_pages, total_pages);
+    serial_printf("[PMM] free=%u used=%u total=%u ram=%u\n",
+                  free_count, used_pages, total_pages, usable_ram_pages);
     return INIT_OK;
 }
 
@@ -248,6 +260,7 @@ uint32_t pmm_get_used_pages(void)     { return used_pages; }
 uint32_t pmm_get_max_phys_addr(void)  { return max_phys_addr_val; }
 uint32_t pmm_get_bitmap_addr(void)    { return bitmap_phys_addr; }
 uint32_t pmm_get_bitmap_size(void)    { return bitmap_size; }
+uint32_t pmm_get_usable_ram_pages(void) { return usable_ram_pages; }
 
 KAOS_EXPORT(pmm_alloc_page)
 KAOS_EXPORT(pmm_alloc_pages)

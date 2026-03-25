@@ -6,14 +6,15 @@ local ui = {}
 -- Global theme table
 theme = {}
 
--- Event type constants (match kernel EVENT_* values)
-ui.EVENT_MOUSE_MOVE  = 1
-ui.EVENT_MOUSE_DOWN  = 2
-ui.EVENT_MOUSE_UP    = 3
-ui.EVENT_MOUSE_WHEEL = 4
-ui.EVENT_KEY_DOWN    = 5
-ui.EVENT_KEY_UP      = 6
-ui.EVENT_KEY_CHAR    = 7
+-- Event type constants — alias the kernel globals (set by lua_state.c)
+-- so toolkit widgets can use core.EVENT_* or the bare globals interchangeably
+ui.EVENT_KEY_DOWN    = EVENT_KEY_DOWN
+ui.EVENT_KEY_UP      = EVENT_KEY_UP
+ui.EVENT_MOUSE_MOVE  = EVENT_MOUSE_MOVE
+ui.EVENT_MOUSE_DOWN  = EVENT_MOUSE_DOWN
+ui.EVENT_MOUSE_UP    = EVENT_MOUSE_UP
+ui.EVENT_MOUSE_WHEEL = EVENT_MOUSE_WHEEL
+ui.EVENT_KEY_CHAR    = EVENT_KEY_CHAR
 
 -- Key constants
 ui.KEY_TAB       = 15
@@ -192,16 +193,40 @@ end
 
 -- ── Theme Loading ──────────────────────────────────
 
+local prefs = require("lib/prefs")
+local _theme_path = ""
+
 function ui.load_theme(path)
     local fn, err = loadfile(path)
     if fn then
         theme = fn()
+        _theme_path = path
     else
         print("[ui] Failed to load theme: " .. tostring(err))
     end
 end
 
--- Load dark theme by default
-ui.load_theme("/system/themes/dark.lua")
+-- Save theme preference via prefs system (cross-task broadcast)
+function ui.set_theme(path)
+    ui.load_theme(path)
+    prefs.put("theme", path)
+end
+
+-- Check if prefs changed (theme, etc.) — call from event loops
+-- Returns true if theme actually changed
+function ui.poll_theme()
+    if prefs.poll() then
+        local new_theme = prefs.get("theme")
+        if new_theme and new_theme ~= _theme_path then
+            ui.load_theme(new_theme)
+            return true
+        end
+    end
+    return false
+end
+
+-- Load saved theme on startup
+local saved_theme = prefs.get("theme", "/system/themes/dark.lua")
+ui.load_theme(saved_theme)
 
 return ui

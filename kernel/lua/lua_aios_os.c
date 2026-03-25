@@ -60,6 +60,8 @@ static int l_os_meminfo(lua_State *L) {
     lua_setfield(L, -2, "pmm_free_pages");
     lua_pushinteger(L, (lua_Integer)pmm_get_total_pages());
     lua_setfield(L, -2, "pmm_total_pages");
+    lua_pushinteger(L, (lua_Integer)pmm_get_usable_ram_pages());
+    lua_setfield(L, -2, "pmm_ram_pages");
     return 1;
 }
 

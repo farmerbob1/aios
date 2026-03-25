@@ -71,6 +71,11 @@ void chaos_gl_compositor_shutdown(void) {
     }
 }
 
+void chaos_gl_get_screen_size(int *w, int *h) {
+    if (w) *w = screen_w;
+    if (h) *h = screen_h;
+}
+
 /* ── Compose ──────────────────────────────────────────── */
 
 void chaos_gl_compose(uint32_t desktop_clear_color) {

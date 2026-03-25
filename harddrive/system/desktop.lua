@@ -221,5 +221,12 @@ while running do
         last_heartbeat = now
     end
 
+    -- Pick up theme changes from Settings app
+    local ui = require("core")
+    if ui.poll_theme() then
+        dirty = true
+        taskbar_dirty = true
+    end
+
     aios.os.sleep(16)
 end

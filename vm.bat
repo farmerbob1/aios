@@ -26,8 +26,15 @@ if not exist "%RAW%" (
 %VBOX% controlvm "%VMNAME%" poweroff >nul 2>&1
 timeout /t 2 /nobreak >nul
 
-:: Convert raw image to VDI
+:: Detach and unregister old VDI so we can replace it
+%VBOX% showvminfo "%VMNAME%" >nul 2>&1
+if not errorlevel 1 (
+    %VBOX% storageattach "%VMNAME%" --storagectl "SATA" --port 0 --device 0 --medium none >nul 2>&1
+)
+%VBOX% closemedium disk "%VDI%" >nul 2>&1
 if exist "%VDI%" del "%VDI%"
+
+:: Convert raw image to VDI
 echo Converting raw image to VDI...
 %VBOX% convertfromraw "%RAW%" "%VDI%" --format VDI
 if errorlevel 1 (
@@ -36,7 +43,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Check if VM already exists
+:: Create VM if it doesn't exist
 %VBOX% showvminfo "%VMNAME%" >nul 2>&1
 if errorlevel 1 (
     echo Creating VM "%VMNAME%"...
@@ -48,16 +55,9 @@ if errorlevel 1 (
     %VBOX% modifyvm "%VMNAME%" --nic1 nat --nictype1 82540EM
     %VBOX% modifyvm "%VMNAME%" --uart1 0x3F8 4 --uart-mode1 file %~dp0build\serial.log
     %VBOX% storagectl "%VMNAME%" --name "SATA" --add sata --controller IntelAhci --portcount 1
-) else (
-    echo VM "%VMNAME%" already exists, updating disk...
-    %VBOX% storageattach "%VMNAME%" --storagectl "SATA" --port 0 --device 0 --medium none >nul 2>&1
-    %VBOX% closemedium disk "%VDI%" >nul 2>&1
-    if not exist "%VDI%" (
-        %VBOX% convertfromraw "%RAW%" "%VDI%" --format VDI
-    )
 )
 
-:: Attach disk and start
+:: Attach fresh disk and start
 %VBOX% storageattach "%VMNAME%" --storagectl "SATA" --port 0 --device 0 --type hdd --medium "%VDI%"
 echo Starting %VMNAME%...
 %VBOX% startvm "%VMNAME%"

@@ -196,25 +196,28 @@ refresh()
 
 local function draw_toolbar(sw)
     local text_c = theme and theme.text_primary or 0x00FFFFFF
-    chaos_gl.rect(0, TITLEBAR_H, sw, TOOLBAR_H, 0x00353535)
+    local toolbar_bg = theme and theme.tab_bg or 0x00353535
+    local btn_bg = theme and theme.button_normal or 0x00444444
+    chaos_gl.rect(0, TITLEBAR_H, sw, TOOLBAR_H, toolbar_bg)
     local btn_x = 4
     local btns = {"Back", "Up"}
     for _, label in ipairs(btns) do
         local bw = chaos_gl.text_width(label) + 16
-        chaos_gl.rect_rounded(btn_x, TITLEBAR_H + 4, bw, 20, 3, 0x00444444)
+        chaos_gl.rect_rounded(btn_x, TITLEBAR_H + 4, bw, 20, 3, btn_bg)
         chaos_gl.text(btn_x + 8, TITLEBAR_H + 6, label, text_c, 0, 0)
         btn_x = btn_x + bw + 4
     end
     -- View toggle (right side)
     local vw_label = view_mode == "grid" and "List" or "Grid"
     local vw_w = chaos_gl.text_width(vw_label) + 16
-    chaos_gl.rect_rounded(sw - vw_w - 4, TITLEBAR_H + 4, vw_w, 20, 3, 0x00444444)
+    chaos_gl.rect_rounded(sw - vw_w - 4, TITLEBAR_H + 4, vw_w, 20, 3, btn_bg)
     chaos_gl.text(sw - vw_w + 4, TITLEBAR_H + 6, vw_label, text_c, 0, 0)
 end
 
 local function draw_pathbar(sw)
     local sec_c = theme and theme.text_secondary or 0x00AAAAAA
-    chaos_gl.rect(0, TITLEBAR_H + TOOLBAR_H, sw, PATHBAR_H, 0x00222222)
+    local pathbar_bg = theme and theme.field_bg or 0x00222222
+    chaos_gl.rect(0, TITLEBAR_H + TOOLBAR_H, sw, PATHBAR_H, pathbar_bg)
     chaos_gl.text(4, TITLEBAR_H + TOOLBAR_H + 3, current_path, sec_c, 0, 0)
 end
 
@@ -222,7 +225,8 @@ local function draw_list_header(sw)
     local sec_c = theme and theme.text_secondary or 0x00AAAAAA
     local accent = theme and theme.accent or 0x00FF8800
     local hy = CONTENT_Y
-    chaos_gl.rect(0, hy, sw, HEADER_H, 0x00303030)
+    local header_bg = theme and theme.tab_bg or 0x00303030
+    chaos_gl.rect(0, hy, sw, HEADER_H, header_bg)
 
     -- Column headers with sort indicators
     local cols = {
@@ -238,7 +242,8 @@ local function draw_list_header(sw)
         end
         chaos_gl.text(c.x, hy + 4, c.label .. arrow, color, 0, 0)
     end
-    chaos_gl.rect(0, hy + HEADER_H - 1, sw, 1, 0x00444444)
+    local sep_c = theme and theme.border or theme.separator or 0x00444444
+    chaos_gl.rect(0, hy + HEADER_H - 1, sw, 1, sep_c)
 end
 
 local function draw_list_view(sw, sh)
@@ -248,6 +253,7 @@ local function draw_list_view(sw, sh)
     local text_c = theme and theme.text_primary or 0x00FFFFFF
     local sec_c = theme and theme.text_secondary or 0x00AAAAAA
     local accent = theme and theme.accent or 0x00FF8800
+    local alt_row = theme and theme.list_hover or 0x00323232
 
     chaos_gl.push_clip(0, list_top, sw, visible_h)
     for i, entry in ipairs(entries) do
@@ -256,7 +262,7 @@ local function draw_list_view(sw, sh)
             if i == selected then
                 chaos_gl.rect(0, y, sw, LIST_ITEM_H, accent)
             elseif i % 2 == 0 then
-                chaos_gl.rect(0, y, sw, LIST_ITEM_H, 0x00323232)
+                chaos_gl.rect(0, y, sw, LIST_ITEM_H, alt_row)
             end
 
             -- Icon

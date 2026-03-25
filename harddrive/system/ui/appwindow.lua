@@ -15,6 +15,7 @@
 --   win:destroy()
 
 local tb = require("titlebar")
+local ui = require("core")
 
 local AppWindow = {}
 AppWindow.__index = AppWindow
@@ -60,6 +61,7 @@ function AppWindow:set_title(title)
 end
 
 function AppWindow:begin_frame()
+    ui.poll_theme()
     chaos_gl.surface_bind(self.surface)
     local bg = theme and theme.window_bg or 0x00282830
     chaos_gl.surface_clear(self.surface, bg)

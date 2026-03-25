@@ -21,3 +21,4 @@ uint32_t pmm_get_used_pages(void);
 uint32_t pmm_get_max_phys_addr(void);
 uint32_t pmm_get_bitmap_addr(void);
 uint32_t pmm_get_bitmap_size(void);
+uint32_t pmm_get_usable_ram_pages(void);

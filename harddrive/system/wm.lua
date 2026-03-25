@@ -64,17 +64,9 @@ end
 -- ── Initialization ──────────────────────────────────
 
 function wm.init()
-    local theme_fn = loadfile("/system/themes/dark.lua")
-    if theme_fn then
-        theme = theme_fn()
-    else
-        theme = { taskbar_bg = 0x002A2A2A, text_primary = 0x00FFFFFF,
-                   text_secondary = 0x00AAAAAA, accent = 0x00FF8800,
-                   app_active_indicator = 0x00FF8800, button_hover = 0x004A4A4A,
-                   menu_bg = 0x003A3A3A, menu_border = 0x00555555,
-                   menu_text = 0x00FFFFFF, menu_hover = 0x00FF8800,
-                   desktop_bg = 0x00283040 }
-    end
+    -- Use core.lua's theme system (reads saved preference from /system/theme.cfg)
+    local ui = require("core")
+    -- theme global is now set by core.lua's init
     wm._init_taskbar()
     wm._init_cursor()
     wm._scan_apps()
@@ -124,7 +116,11 @@ function wm._draw_taskbar()
     local text_c = theme and theme.text_primary or 0x00FFFFFF
     local sec_c = theme and theme.text_secondary or 0x00AAAAAA
     local accent = theme and theme.accent or 0x00FF8800
-    local dock_bg = 0x002A2A32
+    local dock_bg = theme and theme.taskbar_bg or 0x002A2A32
+    local dock_border = theme and theme.border or 0x00444455
+    local dock_highlight = theme and theme.button_hover or 0x00505060
+    local btn_bg = theme and theme.button_normal or 0x00383840
+    local inactive_bg = theme and theme.button_disabled or 0x00484850
 
     -- Gather dock items: menu + app icons + separator + stats + clock
     local wins = aios.wm.get_windows()
@@ -153,16 +149,16 @@ function wm._draw_taskbar()
 
     -- Draw pill background with border
     chaos_gl.rect_rounded(pill_x, pill_y, pill_w, pill_h, DOCK_RADIUS, dock_bg)
-    chaos_gl.rect_rounded_outline(pill_x, pill_y, pill_w, pill_h, DOCK_RADIUS, 0x00444455, 1)
+    chaos_gl.rect_rounded_outline(pill_x, pill_y, pill_w, pill_h, DOCK_RADIUS, dock_border, 1)
     -- Subtle top highlight
-    chaos_gl.rect(pill_x + DOCK_RADIUS, pill_y + 1, pill_w - DOCK_RADIUS * 2, 1, 0x00505060)
+    chaos_gl.rect(pill_x + DOCK_RADIUS, pill_y + 1, pill_w - DOCK_RADIUS * 2, 1, dock_highlight)
 
     -- Layout items inside pill
     local ix = pill_x + DOCK_PAD
     local iy = pill_y + (pill_h - DOCK_ICON) // 2
 
     -- Menu button
-    chaos_gl.rect_rounded(ix, iy, DOCK_ICON, DOCK_ICON, 6, 0x00383840)
+    chaos_gl.rect_rounded(ix, iy, DOCK_ICON, DOCK_ICON, 6, btn_bg)
     local a_w = chaos_gl.text_width("A")
     local fh = chaos_gl.font_height(-1)
     chaos_gl.text(ix + (DOCK_ICON - a_w) // 2, iy + (DOCK_ICON - fh) // 2, "A", accent, 0, 0)
@@ -171,7 +167,7 @@ function wm._draw_taskbar()
     -- App icons
     for _, w in ipairs(wins) do
         local is_active = w.active
-        local ibg = is_active and accent or 0x00484850
+        local ibg = is_active and accent or inactive_bg
         chaos_gl.rect_rounded(ix, iy, DOCK_ICON, DOCK_ICON, 8, ibg)
 
         -- Try to find app icon texture

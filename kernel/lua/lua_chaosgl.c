@@ -695,6 +695,14 @@ static int l_get_compose_stats(lua_State *L) {
     return 1;
 }
 
+static int l_get_screen_size(lua_State *L) {
+    int w, h;
+    chaos_gl_get_screen_size(&w, &h);
+    lua_pushinteger(L, w);
+    lua_pushinteger(L, h);
+    return 2;
+}
+
 /* ── Registration ────────────────────────────────────── */
 
 static const struct luaL_Reg chaosgl_funcs[] = {
@@ -773,6 +781,7 @@ static const struct luaL_Reg chaosgl_funcs[] = {
     /* Stats */
     {"get_stats",            l_get_stats},
     {"get_compose_stats",    l_get_compose_stats},
+    {"get_screen_size",      l_get_screen_size},
     /* Compositor */
     {"compose",              l_compose},
     /* Boot splash */

@@ -18,3 +18,6 @@ void chaos_gl_compose(uint32_t desktop_clear_color);
 
 /* Get compositor stats from last compose pass. */
 chaos_gl_stats_t chaos_gl_get_compose_stats(void);
+
+/* Get screen resolution. */
+void chaos_gl_get_screen_size(int *w, int *h);

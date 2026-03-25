@@ -2,23 +2,23 @@
 
 A hobby operating system targeting i686 (32-bit x86), built from scratch with a graphical desktop, Lua scripting, modular kernel drivers, and a full networking stack.
 
-Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
+Runs in QEMU and VirtualBox (UEFI boot). Everything executes in ring 0 with identity-mapped memory.
 
 ## Features
 
 **Kernel (Phases 0-3)**
-- Custom bootloader (stage1 MBR + stage2 ELF loader)
+- UEFI bootloader (x86_64 PE/COFF, GOP framebuffer, 64-to-32-bit mode transition)
 - Physical memory manager (bitmap-based, next-fit)
 - Virtual memory manager (4KB paging, identity-mapped)
 - Kernel heap (slab allocator + buddy allocator)
 - Preemptive scheduler (PIT-driven at 250Hz, 32 tasks max)
 - GDT/IDT/ISR/IRQ, FPU/SSE context switching
 - PS/2 keyboard and mouse drivers
-- ATA disk driver with Bus Master DMA (PCI IDE controller)
+- ATA disk driver with Bus Master DMA (legacy IDE) + AHCI/SATA driver
 - Block cache (512-entry LRU, write-through, 2MB RAM)
 
 **ChaosFS (Phase 4)**
-- Custom extent-based filesystem at LBA 2048
+- Custom extent-based filesystem at LBA 67584 (after GPT + ESP)
 - 4KB blocks, inode-based, directory support
 - Full POSIX-like API (open, read, write, seek, stat, mkdir, unlink)
 - Block cache with O(1) hash lookup, automatic invalidation on block free
@@ -76,7 +76,7 @@ Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
 **ChaosRIP (Phase 13)**
 - Doom/Quake-hybrid FPS running natively on AIOS
 - Portal-based sector visibility culling (Build/Quake style)
-- 320x200 software rendering through ChaosGL at 30+ fps
+- 320x200 software rendering through ChaosGL at 60 fps
 - Runtime procedural model construction for sector geometry
 - Sprite shader with color-key discard and UV sub-rect for sprite sheets
 - Billboarded enemy sprites (8 rotation frames, 6-state AI)
@@ -96,17 +96,20 @@ Runs in QEMU. Everything executes in ring 0 with identity-mapped memory.
 
 ## Building
 
-Requires an i686-elf cross-compiler, NASM, Make, Python 3, and QEMU.
+Requires i686-elf cross-compiler, x86_64 MinGW GCC, NASM, Make, Python 3, and QEMU.
 
 ```bash
 # Set toolchain paths
-export PATH="/c/i686-elf-tools/bin:/c/msys64/usr/bin:$PATH"
+export PATH="/c/i686-elf-tools/bin:/c/msys64/usr/bin:/c/msys64/mingw64/bin:$PATH"
 
-# Build everything (kernel + 512MB disk image + ChaosFS)
+# Build everything (UEFI bootloader + kernel + 512MB GPT disk image + ChaosFS)
 make clean && make all
 
-# Run in QEMU
+# Run in QEMU (with UEFI firmware)
 make run
+
+# Or run in VirtualBox
+vm.bat
 ```
 
 ## Terminal Commands
@@ -165,10 +168,10 @@ Apps can also be distributed as `.cpk` archives (created with `tools/cpk_pack.py
 ## Architecture
 
 ```
-boot/stage1.asm (MBR) -> boot/stage2.asm (ELF loader) -> kernel/main.c
+EDK2 firmware -> boot/uefi_boot.c (UEFI app) -> 64-to-32 transition -> kernel/main.c
     |
     v
-PMM -> VMM -> Heap -> GDT/IDT -> Scheduler -> Drivers
+PMM -> VMM -> Heap -> GDT/IDT -> Scheduler -> Drivers (IDE or AHCI)
     |
     v
 ChaosFS -> ChaosGL -> KAOS modules -> Lua runtime -> Desktop shell
@@ -177,19 +180,19 @@ ChaosFS -> ChaosGL -> KAOS modules -> Lua runtime -> Desktop shell
 PCI -> E1000 (KAOS) -> lwIP -> BearSSL -> aios.net.* -> Lua apps
 ```
 
-## Disk Image Layout
+## Disk Image Layout (GPT)
 
 | Region | Offset | Contents |
 |--------|--------|----------|
-| Stage 1 | Sector 0 | MBR bootloader (512B) |
-| Stage 2 | Sectors 1-16 | Second-stage loader (8KB) |
-| Kernel | Sector 17+ | ELF binary (~1MB) |
-| ChaosFS | LBA 2048+ | Filesystem (rest of 512MB image) |
+| Protective MBR | LBA 0 | GPT compatibility |
+| GPT Header | LBA 1-33 | Partition table |
+| ESP (FAT16) | LBA 2048-67583 | `\EFI\BOOT\BOOTX64.EFI` + `\kernel.elf` |
+| ChaosFS | LBA 67584+ | Filesystem (~480MB) |
 
 ## Project Structure
 
 ```
-boot/           Bootloader (stage1 MBR, stage2 ELF loader)
+boot/           UEFI bootloader (uefi_boot.c, transition.asm, uefi.h)
 kernel/         Kernel core (PMM, VMM, heap, scheduler, interrupts)
   chaos/        ChaosFS filesystem
   compression/  LZ4 compression and CPK archive reader
@@ -197,7 +200,7 @@ kernel/         Kernel core (PMM, VMM, heap, scheduler, interrupts)
   lua/          Lua runtime integration and AIOS bindings
   net/          Networking (lwIP port, BearSSL port, Lua net API)
   audio/        Audio subsystem (WAV, MP3, MIDI)
-drivers/        Hardware drivers (serial, keyboard, mouse, ATA/DMA, PCI)
+drivers/        Hardware drivers (serial, keyboard, mouse, ATA/DMA, AHCI, PCI)
 renderer/       ChaosGL software renderer, TTF fonts, compositor
 modules/        KAOS module source (e1000.c, ac97.c)
 include/        Shared headers (types, io, boot_info, kaos SDK)
@@ -209,7 +212,7 @@ harddrive/      Files placed on ChaosFS disk image
   system/       Desktop shell, WM, UI toolkit, themes, icons, fonts
     net/        Lua networking library (http.lua)
     modules/    KAOS .kaos binaries (populated at build time)
-tools/          Build tools (populate_fs.py, cpk_pack.py)
+tools/          Build tools (build_disk.py, populate_fs.py, cpk_pack.py)
 documents/      Design specifications for each phase
 ```
 

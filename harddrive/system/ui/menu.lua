@@ -101,29 +101,37 @@ function Menu:draw(x, y)
     chaos_gl.surface_present(self.surface)
 end
 
+-- Convert screen-space mouse coords to menu-local, update hovered_index
+function Menu:_hit_test(mx, my)
+    local lx = mx - (self._screen_x or 0)
+    local ly = my - (self._screen_y or 0)
+    self.hovered_index = 0
+    if lx < 0 or lx >= self.w or ly < 0 or ly >= self.h then
+        return false  -- outside menu
+    end
+    local cy = 4
+    for i, item in ipairs(self.items) do
+        if item.separator then
+            cy = cy + self._sep_height
+        else
+            if ly >= cy and ly < cy + self._item_height then
+                self.hovered_index = i
+            end
+            cy = cy + self._item_height
+        end
+    end
+    return true  -- inside menu
+end
+
 function Menu:on_input(event)
     if not self.visible then return false end
 
     if event.type == core.EVENT_MOUSE_MOVE then
-        local mx = event.mouse_x - (self._screen_x or 0)
-        local my = event.mouse_y - (self._screen_y or 0)
-        self.hovered_index = 0
-        local cy = 4
-        for i, item in ipairs(self.items) do
-            if item.separator then
-                cy = cy + self._sep_height
-            else
-                if my >= cy and my < cy + self._item_height and mx >= 0 and mx < self.w then
-                    self.hovered_index = i
-                end
-                cy = cy + self._item_height
-            end
-        end
+        self:_hit_test(event.mouse_x, event.mouse_y)
         return true
     elseif event.type == core.EVENT_MOUSE_DOWN and event.button == 1 then
-        local mx = event.mouse_x - (self._screen_x or 0)
-        local my = event.mouse_y - (self._screen_y or 0)
-        if mx < 0 or mx >= self.w or my < 0 or my >= self.h then
+        local inside = self:_hit_test(event.mouse_x, event.mouse_y)
+        if not inside then
             self:dismiss()
             return true
         end
@@ -135,6 +143,7 @@ function Menu:on_input(event)
             self:dismiss()
             return true
         end
+        return true  -- inside menu but on separator/empty space, consume event
     elseif event.type == core.EVENT_KEY_DOWN then
         if event.key == core.KEY_ESCAPE then
             self:dismiss()

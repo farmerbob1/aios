@@ -68,13 +68,17 @@ static int l_input_poll(lua_State *L) {
     }
 
     if (ev.type == EVENT_MOUSE_MOVE || ev.type == EVENT_MOUSE_DOWN ||
-        ev.type == EVENT_MOUSE_UP) {
+        ev.type == EVENT_MOUSE_UP || ev.type == EVENT_MOUSE_WHEEL) {
         lua_pushinteger(L, (lua_Integer)ev.mouse_x);
         lua_setfield(L, -2, "mouse_x");
         lua_pushinteger(L, (lua_Integer)ev.mouse_y);
         lua_setfield(L, -2, "mouse_y");
         lua_pushinteger(L, (lua_Integer)ev.mouse_btn);
         lua_setfield(L, -2, "button");
+        if (ev.type == EVENT_MOUSE_WHEEL) {
+            lua_pushinteger(L, (lua_Integer)ev.wheel);
+            lua_setfield(L, -2, "wheel");
+        }
     }
 
     return 1;

@@ -13,6 +13,7 @@ typedef enum {
     EVENT_MOUSE_MOVE,
     EVENT_MOUSE_DOWN,
     EVENT_MOUSE_UP,
+    EVENT_MOUSE_WHEEL,
 } event_type_t;
 
 typedef struct {
@@ -21,6 +22,7 @@ typedef struct {
     int16_t  mouse_x;
     int16_t  mouse_y;
     uint8_t  mouse_btn;
+    int8_t   wheel;      /* scroll wheel delta: +1 up, -1 down */
 } input_event_t;
 
 void input_push(input_event_t* ev);

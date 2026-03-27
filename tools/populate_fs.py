@@ -1462,6 +1462,21 @@ def main():
             writer.create_file(icons_ino, name, data)
         print(f"populate_fs: wrote {len(icon_files)} icon files to /system/icons/")
 
+        # ── Step 5c: Desktop shortcut files (/desktop/) ──
+        desktop_ino = writer.ensure_directory("/desktop")
+        desk_shortcuts = [
+            ("Files.desk",    'return { app = "/apps/files/main.lua", icon = "/system/icons/files_48.png" }\n'),
+            ("Terminal.desk", 'return { app = "/apps/terminal/main.lua", icon = "/system/icons/terminal_48.png" }\n'),
+            ("Settings.desk", 'return { app = "/apps/settings/main.lua", icon = "/system/icons/settings_48.png" }\n'),
+            ("Editor.desk",   'return { app = "/apps/edit/main.lua", icon = "/system/icons/edit_48.png" }\n'),
+        ]
+        for name, content in desk_shortcuts:
+            writer.create_file(desktop_ino, name, content.encode('utf-8'))
+            print(f"populate_fs: wrote /desktop/{name}")
+
+        # Create /system/trash/ directory
+        writer.ensure_directory("/system/trash")
+
         # Test modules only needed for phase tests (disabled in interactive boot)
         # for name, gen_fn in [("corrupt.kaos", make_corrupt_kaos), ("bad_abi.kaos", make_bad_abi_kaos)]:
         #     data = gen_fn()

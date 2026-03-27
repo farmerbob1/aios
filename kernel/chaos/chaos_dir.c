@@ -475,7 +475,26 @@ int chaos_closedir(int handle) {
     return CHAOS_OK;
 }
 
-/* ── Rename (same-directory only) ──────────────────── */
+/* ── Helper: unlink a directory entry's target inode ────── */
+static void unlink_dirent_target(uint32_t parent, const char *name, struct chaos_dirent *de) {
+    struct chaos_inode victim_ino;
+    if (chaos_inode_read(de->inode, &victim_ino) != CHAOS_OK) return;
+    chaos_dir_remove(parent, name);
+    victim_ino.link_count--;
+    if (victim_ino.link_count == 0 && victim_ino.open_count == 0) {
+        for (int i = 0; i < victim_ino.extent_count && i < CHAOS_MAX_INLINE_EXTENTS; i++) {
+            for (uint32_t b = 0; b < victim_ino.extents[i].block_count; b++) {
+                chaos_free_block(victim_ino.extents[i].start_block + b);
+            }
+        }
+        chaos_free_inode(de->inode);
+    } else {
+        victim_ino.unlink_pending = (victim_ino.link_count == 0);
+        chaos_inode_write(de->inode, &victim_ino);
+    }
+}
+
+/* ── Rename (supports cross-directory moves) ──────────── */
 
 int chaos_rename(const char* old_path, const char* new_path) {
     char old_name[CHAOS_MAX_FILENAME + 1];
@@ -485,9 +504,10 @@ int chaos_rename(const char* old_path, const char* new_path) {
 
     if (old_parent == CHAOS_INODE_NULL || new_parent == CHAOS_INODE_NULL)
         return CHAOS_ERR_INVALID;
-    if (old_parent != new_parent) return CHAOS_ERR_INVALID;  /* cross-directory not supported */
 
-    if (strcmp(old_name, new_name) == 0) return CHAOS_OK;  /* no-op */
+    /* Same parent + same name → no-op */
+    if (old_parent == new_parent && strcmp(old_name, new_name) == 0)
+        return CHAOS_OK;
 
     /* Find old entry */
     struct chaos_dirent old_entry;
@@ -496,49 +516,78 @@ int chaos_rename(const char* old_path, const char* new_path) {
         return CHAOS_ERR_NOT_FOUND;
     }
 
-    /* Check if new name already exists */
+    /* Check if new name already exists in target directory */
     struct chaos_dirent existing;
-    if (chaos_dir_find(old_parent, new_name, &existing, NULL, NULL) >= 0) {
+    if (chaos_dir_find(new_parent, new_name, &existing, NULL, NULL) >= 0) {
         if (existing.type == CHAOS_DT_DIR) return CHAOS_ERR_NOT_EMPTY;
-        /* File exists — unlink it first (full unlink semantics) */
-        /* We need chaos_unlink which is in chaos.c. Use dir_remove + inode free directly. */
-        struct chaos_inode victim_ino;
-        if (chaos_inode_read(existing.inode, &victim_ino) == CHAOS_OK) {
-            chaos_dir_remove(old_parent, new_name);
-            victim_ino.link_count--;
-            if (victim_ino.link_count == 0 && victim_ino.open_count == 0) {
-                /* Free blocks */
-                for (int i = 0; i < victim_ino.extent_count && i < CHAOS_MAX_INLINE_EXTENTS; i++) {
-                    for (uint32_t b = 0; b < victim_ino.extents[i].block_count; b++) {
-                        chaos_free_block(victim_ino.extents[i].start_block + b);
+        unlink_dirent_target(new_parent, new_name, &existing);
+    }
+
+    if (old_parent == new_parent) {
+        /* Same-directory rename: just update the name in-place */
+        struct chaos_inode dir_ino;
+        if (chaos_inode_read(old_parent, &dir_ino) != CHAOS_OK) return CHAOS_ERR_IO;
+
+        uint32_t phys = inode_logical_block(&dir_ino, blk_idx);
+        uint8_t* buf = (uint8_t*)kmalloc(CHAOS_BLOCK_SIZE);
+        if (!buf) return CHAOS_ERR_IO;
+
+        if (chaos_block_read(phys, buf) != CHAOS_OK) { kfree(buf); return CHAOS_ERR_IO; }
+
+        struct chaos_dirent* d = (struct chaos_dirent*)(buf + slot * CHAOS_DIRENT_SIZE);
+        memset(d->name, 0, 54);
+        strncpy(d->name, new_name, 53);
+        d->name[53] = '\0';
+        d->name_len = (uint8_t)strlen(new_name);
+
+        chaos_block_write(phys, buf);
+        kfree(buf);
+    } else {
+        /* Cross-directory move: add to new parent, remove from old */
+        int r = chaos_dir_add(new_parent, new_name, old_entry.inode, old_entry.type);
+        if (r != CHAOS_OK) return r;
+
+        chaos_dir_remove(old_parent, old_name);
+
+        /* For directory moves, update the .. entry to point to new parent */
+        if (old_entry.type == CHAOS_DT_DIR) {
+            struct chaos_inode moved_ino;
+            if (chaos_inode_read(old_entry.inode, &moved_ino) == CHAOS_OK) {
+                /* Find .. entry and update its inode to new_parent */
+                uint32_t total = inode_total_blocks(&moved_ino);
+                uint8_t* buf = (uint8_t*)kmalloc(CHAOS_BLOCK_SIZE);
+                if (buf) {
+                    for (uint32_t b = 0; b < total; b++) {
+                        uint32_t phys = inode_logical_block(&moved_ino, b);
+                        if (phys == CHAOS_BLOCK_NULL) continue;
+                        if (chaos_block_read(phys, buf) != CHAOS_OK) continue;
+                        for (uint32_t s = 0; s < CHAOS_DIRENTS_PER_BLK; s++) {
+                            struct chaos_dirent* d = (struct chaos_dirent*)(buf + s * CHAOS_DIRENT_SIZE);
+                            if (d->inode != CHAOS_INODE_NULL && d->name_len == 2 &&
+                                d->name[0] == '.' && d->name[1] == '.') {
+                                d->inode = new_parent;
+                                chaos_block_write(phys, buf);
+                                goto dotdot_done;
+                            }
+                        }
                     }
+                    dotdot_done:
+                    kfree(buf);
                 }
-                chaos_free_inode(existing.inode);
-            } else {
-                victim_ino.unlink_pending = (victim_ino.link_count == 0);
-                chaos_inode_write(existing.inode, &victim_ino);
+                /* Update link counts: old parent loses .., new parent gains .. */
+                struct chaos_inode old_p_ino, new_p_ino;
+                if (chaos_inode_read(old_parent, &old_p_ino) == CHAOS_OK) {
+                    if (old_p_ino.link_count > 0) old_p_ino.link_count--;
+                    chaos_inode_write(old_parent, &old_p_ino);
+                }
+                if (chaos_inode_read(new_parent, &new_p_ino) == CHAOS_OK) {
+                    new_p_ino.link_count++;
+                    chaos_inode_write(new_parent, &new_p_ino);
+                }
             }
         }
     }
 
-    /* Update the entry name */
-    struct chaos_inode dir_ino;
-    if (chaos_inode_read(old_parent, &dir_ino) != CHAOS_OK) return CHAOS_ERR_IO;
-
-    uint32_t phys = inode_logical_block(&dir_ino, blk_idx);
-    uint8_t* buf = (uint8_t*)kmalloc(CHAOS_BLOCK_SIZE);
-    if (!buf) return CHAOS_ERR_IO;
-
-    if (chaos_block_read(phys, buf) != CHAOS_OK) { kfree(buf); return CHAOS_ERR_IO; }
-
-    struct chaos_dirent* d = (struct chaos_dirent*)(buf + slot * CHAOS_DIRENT_SIZE);
-    memset(d->name, 0, 54);
-    strncpy(d->name, new_name, 53);
-    d->name[53] = '\0';
-    d->name_len = (uint8_t)strlen(new_name);
-
-    chaos_block_write(phys, buf);
-    kfree(buf);
     return CHAOS_OK;
 }
 

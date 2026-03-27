@@ -273,6 +273,26 @@ def draw_sysmon(c):
     c.fill_rect(s//3, s*2//3+2, s//3, 3, 120, 120, 135)
     c.fill_rect(s//4, s*2//3+5, s//2, 2, 120, 120, 135)
 
+def draw_trash(c):
+    s = c.w
+    # Trash can body
+    body_x = s//4
+    body_w = s//2
+    body_y = s//3
+    body_h = s*2//3 - 2
+    c.fill_rounded(body_x, body_y, body_w, body_h, 3, 90, 90, 105)
+    # Lid
+    lid_y = s//4
+    c.fill_rect(body_x - 2, lid_y, body_w + 4, 3, 110, 110, 125)
+    # Handle on lid
+    c.fill_rect(s//2 - s//8, lid_y - 3, s//4, 3, 110, 110, 125)
+    c.fill_rect(s//2 - s//8, lid_y - 3, 2, 3, 110, 110, 125)
+    c.fill_rect(s//2 + s//8 - 2, lid_y - 3, 2, 3, 110, 110, 125)
+    # Vertical lines on body (ridges)
+    for i in range(3):
+        lx = body_x + body_w//(3+1) * (i + 1)
+        c.fill_rect(int(lx), body_y + 4, 1, body_h - 8, 70, 70, 85)
+
 # ── Generate all icons ──────────────────────────────
 
 icons = [
@@ -287,6 +307,7 @@ icons = [
     ("sysmon",   [32, 48], draw_chart),
     ("edit",     [32, 48], draw_pencil),
     ("browser",  [32, 48], draw_browser),
+    ("trash",    [32, 48], draw_trash),
 ]
 
 os.makedirs(ICON_DIR, exist_ok=True)

@@ -19,7 +19,7 @@ typedef struct {
     int16_t  mouse_x, mouse_y;
     uint8_t  button;
     uint8_t  alt, shift, ctrl;
-    uint8_t  wheel;
+    int8_t   wheel;
     char     ch;
 } wm_event_t;
 
@@ -334,7 +334,7 @@ static int l_wm_push_event(lua_State *L) {
     lua_getfield(L, 2, "alt");    e->alt     = lua_toboolean(L, -1);            lua_pop(L, 1);
     lua_getfield(L, 2, "shift");  e->shift   = lua_toboolean(L, -1);            lua_pop(L, 1);
     lua_getfield(L, 2, "ctrl");   e->ctrl    = lua_toboolean(L, -1);            lua_pop(L, 1);
-    lua_getfield(L, 2, "wheel");  e->wheel   = (uint8_t)lua_tointeger(L, -1);   lua_pop(L, 1);
+    lua_getfield(L, 2, "wheel");  e->wheel   = (int8_t)lua_tointeger(L, -1);    lua_pop(L, 1);
     lua_getfield(L, 2, "char");
     if (lua_isstring(L, -1)) {
         const char *s = lua_tostring(L, -1);

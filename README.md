@@ -14,13 +14,14 @@ Boots via UEFI on QEMU and VirtualBox.
 
 - **UEFI bootloader** — x86_64 PE/COFF app, GOP framebuffer, 64-to-32-bit mode transition
 - **Kernel** — PMM, VMM (4KB paging), slab+buddy heap, preemptive scheduler (250Hz), FPU/SSE context switching
-- **Drivers** — PS/2 keyboard & mouse, ATA DMA (legacy IDE + AHCI/SATA), Intel E1000 NIC, AC97 audio, PCI bus
-- **ChaosFS** — custom extent-based filesystem (4KB blocks, inodes, directories, block cache)
+- **Drivers** — PS/2 keyboard & mouse (IntelliMouse scroll wheel), ATA DMA (legacy IDE + AHCI/SATA), Intel E1000 NIC, AC97 audio, PCI bus
+- **ChaosFS** — custom extent-based filesystem (4KB blocks, inodes, directories, block cache, cross-directory move)
 - **ChaosGL** — software 3D renderer, surface compositor, 2D primitives, TrueType fonts, PNG/JPEG textures, SSE2 SIMD
 - **KAOS modules** — runtime kernel module loading (.kaos ELF relocatable objects)
 - **Lua 5.5** — application scripting with AIOS libraries (filesystem, networking, input, audio, windowing)
 - **UI toolkit** — 20+ widgets, flex/grid layout, dark/light themes with live switching
-- **Window manager** — macOS-style chrome, floating dock, per-window event queues, boot splash
+- **Window manager** — macOS-style chrome, floating dock, per-window event queues, boot splash, right-click context menus
+- **Desktop** — `/desktop/` folder backed, drag-and-drop icons with grid snapping, clipboard (copy/cut/paste), trash can with restore
 - **Networking** — lwIP TCP/IP stack, BearSSL TLS, DHCP, DNS, HTTP client
 - **Web browser** — HTML5 parsing (lexbor), CSS styling, image loading, SVG rendering (nanosvg), navigation history
 - **Package manager** — install/update/remove apps from a remote repo over HTTPS
@@ -28,7 +29,7 @@ Boots via UEFI on QEMU and VirtualBox.
 
 ### Apps
 
-File Browser, Terminal, Settings, Text Editor (undo/redo, find/replace, Save As dialog), Music Player, Image Viewer, 3D Viewer, System Monitor, Web Server, Web Browser, Package Manager, ChaosRIP.
+File Browser (drag-to-folder, context menus, keyboard shortcuts, trash integration), Terminal, Settings, Text Editor (undo/redo, find/replace, Save As dialog), Music Player, Image Viewer, 3D Viewer, System Monitor, Web Server, Web Browser, Package Manager, ChaosRIP.
 
 ## Building
 

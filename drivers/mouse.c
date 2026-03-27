@@ -17,9 +17,10 @@ static uint8_t mouse_buttons_val = 0;
 static volatile bool raw_mode = false;
 static volatile int raw_dx = 0, raw_dy = 0;
 
-/* 3-byte packet assembly */
-static uint8_t mouse_packet[3];
+/* Packet assembly (3 or 4 bytes depending on wheel support) */
+static uint8_t mouse_packet[4];
 static int mouse_byte = 0;
+static bool mouse_has_wheel = false;  /* true if IntelliMouse 4-byte mode */
 
 /* ── PS/2 controller helpers ───────────────────────── */
 
@@ -61,13 +62,15 @@ void mouse_handler(void) {
         return;  /* out of sync, discard */
     }
 
+    int packet_size = mouse_has_wheel ? 4 : 3;
     mouse_packet[mouse_byte++] = data;
-    if (mouse_byte < 3) return;
+    if (mouse_byte < packet_size) return;
     mouse_byte = 0;
 
     if (mouse_debug_count < 3) {
-        serial_printf("[mouse] packet: %02x %02x %02x gui=%d\n",
+        serial_printf("[mouse] packet: %02x %02x %02x%s gui=%d\n",
                       mouse_packet[0], mouse_packet[1], mouse_packet[2],
+                      mouse_has_wheel ? " (wheel)" : "",
                       input_is_gui_mode());
         mouse_debug_count++;
     }
@@ -80,6 +83,13 @@ void mouse_handler(void) {
     int dy = mouse_packet[2];
     if (mouse_packet[0] & 0x10) dx |= 0xFFFFFF00;  /* X sign bit */
     if (mouse_packet[0] & 0x20) dy |= 0xFFFFFF00;  /* Y sign bit */
+
+    /* Extract wheel delta from 4th byte (signed: positive = toward user) */
+    int8_t wheel = 0;
+    if (mouse_has_wheel) {
+        wheel = (int8_t)mouse_packet[3];
+        wheel = -wheel;  /* Invert: positive = scroll up (away from user) */
+    }
 
     /* Extract buttons and detect changes */
     uint8_t old_buttons = mouse_buttons_val;
@@ -113,10 +123,18 @@ void mouse_handler(void) {
         ev.mouse_x = (int16_t)mouse_x_val;
         ev.mouse_y = (int16_t)mouse_y_val;
         ev.mouse_btn = mouse_buttons_val;
+        ev.wheel = 0;
 
         /* Always push move event if mouse moved */
         if (dx != 0 || dy != 0) {
             ev.type = EVENT_MOUSE_MOVE;
+            input_push(&ev);
+        }
+
+        /* Push scroll wheel event */
+        if (wheel != 0) {
+            ev.type = EVENT_MOUSE_WHEEL;
+            ev.wheel = wheel;
             input_push(&ev);
         }
 
@@ -171,6 +189,22 @@ init_result_t mouse_init(void) {
     /* Send defaults */
     mouse_cmd(0xF6);
     mouse_read_data();  /* ACK */
+
+    /* Enable IntelliMouse scroll wheel: magic sample rate sequence 200,100,80 */
+    mouse_cmd(0xF3); mouse_read_data(); mouse_cmd(200); mouse_read_data();
+    mouse_cmd(0xF3); mouse_read_data(); mouse_cmd(100); mouse_read_data();
+    mouse_cmd(0xF3); mouse_read_data(); mouse_cmd(80);  mouse_read_data();
+
+    /* Read device ID — 0x03 means IntelliMouse with scroll wheel */
+    mouse_cmd(0xF2);
+    mouse_read_data();  /* ACK */
+    uint8_t wheel_id = mouse_read_data();
+    if (wheel_id == 0x03) {
+        mouse_has_wheel = true;
+        serial_printf("[mouse] IntelliMouse detected (4-byte packets, scroll wheel)\n");
+    } else {
+        serial_printf("[mouse] Standard mouse (id=0x%02x, no wheel)\n", wheel_id);
+    }
 
     /* Enable data reporting */
     mouse_cmd(0xF4);

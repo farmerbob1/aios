@@ -319,6 +319,48 @@ static int l_io_writefile(lua_State *L) {
     return 1;
 }
 
+/* aios.io.copyfile(src, dst) — copy file contents */
+static int l_io_copyfile(lua_State *L) {
+    const char *src = luaL_checkstring(L, 1);
+    const char *dst = luaL_checkstring(L, 2);
+
+    int src_fd = chaos_open(src, CHAOS_O_RDONLY);
+    if (src_fd < 0) {
+        lua_pushboolean(L, 0);
+        lua_pushfstring(L, "cannot open source '%s'", src);
+        return 2;
+    }
+
+    int dst_fd = chaos_open(dst, CHAOS_O_WRONLY | CHAOS_O_CREAT | CHAOS_O_TRUNC);
+    if (dst_fd < 0) {
+        chaos_close(src_fd);
+        lua_pushboolean(L, 0);
+        lua_pushfstring(L, "cannot open destination '%s'", dst);
+        return 2;
+    }
+
+    char *buf = kmalloc(4096);
+    if (!buf) {
+        chaos_close(src_fd);
+        chaos_close(dst_fd);
+        return luaL_error(L, "out of memory");
+    }
+
+    int ok = 1;
+    while (1) {
+        int n = chaos_read(src_fd, buf, 4096);
+        if (n <= 0) break;
+        int w = chaos_write(dst_fd, buf, (uint32_t)n);
+        if (w < 0) { ok = 0; break; }
+    }
+
+    kfree(buf);
+    chaos_close(src_fd);
+    chaos_close(dst_fd);
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
 static const luaL_Reg io_funcs[] = {
     {"open",     l_io_open},
     {"close",    l_io_close},
@@ -334,6 +376,7 @@ static const luaL_Reg io_funcs[] = {
     {"listdir",  l_io_listdir},
     {"readfile", l_io_readfile},
     {"writefile",l_io_writefile},
+    {"copyfile", l_io_copyfile},
     {NULL, NULL}
 };
 

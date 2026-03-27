@@ -728,7 +728,8 @@ static int l_surface_save_bmp(lua_State *L) {
     }
 
     int w = s->width, h = s->height;
-    uint32_t *pixels = s->bufs[s->buf_index];
+    /* Read from the back buffer (where drawing happens), not the front */
+    uint32_t *pixels = s->bufs[1 - s->buf_index];
     uint32_t row_size = (uint32_t)w * 3;
     uint32_t row_pad = (4 - (row_size % 4)) % 4;
     uint32_t row_stride = row_size + row_pad;

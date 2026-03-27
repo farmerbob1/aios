@@ -28,6 +28,124 @@ CHAOS_DT_DIR = 2
 CHAOS_INODE_NULL = 0
 CHAOS_BLOCK_NULL = 0
 
+# ── VDI Disk Image Support ────────────────────────────────────────
+
+VDI_SIGNATURE = 0xBEDA107F
+VDI_UNALLOCATED = 0xFFFFFFFF
+VDI_DISCARDED = 0xFFFFFFFE
+
+class VdiFile:
+    """Wraps a VDI file and provides raw-disk-like read/write access
+    by translating offsets through the VDI block allocation map."""
+
+    def __init__(self, path, mode='r+b'):
+        self._f = open(path, mode)
+        self._parse_header()
+
+    def _parse_header(self):
+        self._f.seek(0x40)
+        sig = struct.unpack('<I', self._f.read(4))[0]
+        if sig != VDI_SIGNATURE:
+            raise ValueError(f"Not a VDI file (signature 0x{sig:08X})")
+
+        # offsets_bmap and offset_data are at absolute 0x154 and 0x158
+        self._f.seek(0x154)
+        self.offset_bmap = struct.unpack('<I', self._f.read(4))[0]
+        self.offset_data = struct.unpack('<I', self._f.read(4))[0]
+
+        # disk_size at 0x170, block_size at 0x178, blocks_in_image at 0x180
+        self._f.seek(0x170)
+        self.disk_size = struct.unpack('<Q', self._f.read(8))[0]
+        self.block_size = struct.unpack('<I', self._f.read(4))[0]
+        self.block_extra = struct.unpack('<I', self._f.read(4))[0]
+        self.blocks_in_image = struct.unpack('<I', self._f.read(4))[0]
+
+        # Read the entire block allocation map into memory
+        self._f.seek(self.offset_bmap)
+        bam_data = self._f.read(self.blocks_in_image * 4)
+        self.bam = struct.unpack(f'<{self.blocks_in_image}I', bam_data)
+
+        # Virtual cursor position
+        self._pos = 0
+
+    def _translate(self, virtual_offset, length):
+        """Translate a virtual disk range into (file_offset, length) pairs."""
+        chunks = []
+        remaining = length
+        vpos = virtual_offset
+        while remaining > 0:
+            blk_idx = vpos // self.block_size
+            blk_off = vpos % self.block_size
+            chunk_len = min(remaining, self.block_size - blk_off)
+
+            if blk_idx >= self.blocks_in_image:
+                chunks.append((None, chunk_len))  # beyond disk
+            else:
+                phys = self.bam[blk_idx]
+                if phys >= VDI_DISCARDED:
+                    chunks.append((None, chunk_len))  # unallocated
+                else:
+                    foff = (self.offset_data
+                            + phys * (self.block_size + self.block_extra)
+                            + self.block_extra + blk_off)
+                    chunks.append((foff, chunk_len))
+
+            vpos += chunk_len
+            remaining -= chunk_len
+        return chunks
+
+    def seek(self, offset, whence=0):
+        if whence == 0:
+            self._pos = offset
+        elif whence == 1:
+            self._pos += offset
+        elif whence == 2:
+            self._pos = self.disk_size + offset
+
+    def read(self, size):
+        result = bytearray()
+        for foff, chunk_len in self._translate(self._pos, size):
+            if foff is None:
+                result.extend(b'\x00' * chunk_len)
+            else:
+                self._f.seek(foff)
+                result.extend(self._f.read(chunk_len))
+        self._pos += size
+        return bytes(result)
+
+    def write(self, data):
+        vpos = self._pos
+        offset = 0
+        for foff, chunk_len in self._translate(vpos, len(data)):
+            if foff is None:
+                raise IOError("Cannot write to unallocated VDI block "
+                              f"(virtual offset 0x{vpos + offset:X})")
+            self._f.seek(foff)
+            self._f.write(data[offset:offset + chunk_len])
+            offset += chunk_len
+        self._pos += len(data)
+
+    def flush(self):
+        self._f.flush()
+
+    def close(self):
+        self._f.close()
+
+    def tell(self):
+        return self._pos
+
+
+def open_disk_image(path, mode='r+b'):
+    """Open a disk image file. Returns a file-like object.
+    Automatically detects VDI format vs raw image."""
+    with open(path, 'rb') as probe:
+        probe.seek(0x40)
+        sig_bytes = probe.read(4)
+    if len(sig_bytes) == 4 and struct.unpack('<I', sig_bytes)[0] == VDI_SIGNATURE:
+        return VdiFile(path, mode)
+    return open(path, mode)
+
+
 # ── ChaosFS Disk Interface ────────────────────────────────────────
 
 class ChaosFS:
@@ -38,7 +156,7 @@ class ChaosFS:
         self.sb = None
 
     def open(self):
-        self.f = open(self.image_path, 'r+b')
+        self.f = open_disk_image(self.image_path, 'r+b')
         self._read_superblock()
 
     def close(self):
@@ -613,7 +731,7 @@ class ChaosExplorer(tk.Tk):
     def _on_open(self):
         path = filedialog.askopenfilename(
             title="Open Disk Image",
-            filetypes=[("Disk Images", "*.img"), ("All Files", "*.*")])
+            filetypes=[("Disk Images", "*.img *.vdi"), ("Raw Images", "*.img"), ("VDI Images", "*.vdi"), ("All Files", "*.*")])
         if path:
             self._open_image(path)
 

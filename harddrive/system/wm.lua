@@ -1,6 +1,6 @@
 -- AIOS v2 — Window Manager
 -- Lua library loaded by desktop shell. Handles rendering and input routing.
--- macOS-inspired taskbar with centered dock, system stats widget.
+-- Centered dock with Win95-style Start button, system stats widget.
 
 local wm = {}
 
@@ -82,6 +82,8 @@ local DOCK_GAP = 8           -- gap between icons
 local DOCK_PAD = 12          -- padding inside pill
 local DOCK_MARGIN_B = 6      -- margin from screen bottom
 local DOCK_RADIUS = 12       -- pill corner radius
+local START_BTN_W = 72       -- Win95-style Start button width
+local START_BTN_H = 36       -- Start button height (matches DOCK_ICON)
 
 -- ── Dock layout helper ──────────────────────────────
 
@@ -91,12 +93,12 @@ local function calc_dock_pill_x()
     local sep_w = (#wins > 0) and (DOCK_GAP + 2 + DOCK_GAP) or 0
     local stats_w = 48
     local clock_w = 50
-    local content_w = DOCK_ICON + DOCK_GAP + app_w + sep_w + stats_w + DOCK_GAP + clock_w
+    local content_w = START_BTN_W + DOCK_GAP + app_w + sep_w + stats_w + DOCK_GAP + clock_w
     local pill_w = content_w + DOCK_PAD * 2
     return (1024 - pill_w) // 2
 end
 
--- ── macOS-style Dock (floating centered pill) ───────
+-- ── Dock (floating centered pill, Win95 Start button) ───
 
 function wm._init_taskbar()
     taskbar_surface = chaos_gl.surface_create(1024, DOCK_H, false)
@@ -122,12 +124,12 @@ function wm._draw_taskbar()
     local btn_bg = theme and theme.button_normal or 0x00383840
     local inactive_bg = theme and theme.button_disabled or 0x00484850
 
-    -- Gather dock items: menu + app icons + separator + stats + clock
+    -- Gather dock items: Start button + app icons + separator + stats + clock
     local wins = aios.wm.get_windows()
 
     -- Calculate total dock width
-    -- [menu icon] [gap] [app1] [app2] ... [separator] [stats] [gap] [clock]
-    local menu_w = DOCK_ICON
+    -- [Start btn] [gap] [app1] [app2] ... [separator] [stats] [gap] [clock]
+    local menu_w = START_BTN_W
     local app_w = #wins * (DOCK_ICON + DOCK_GAP) - (#wins > 0 and DOCK_GAP or 0)
     local sep_w = (#wins > 0) and (DOCK_GAP + 2 + DOCK_GAP) or 0
     local stats_w = 48
@@ -166,12 +168,32 @@ function wm._draw_taskbar()
     local ix = pill_x + DOCK_PAD
     local iy = pill_y + (pill_h - DOCK_ICON) // 2
 
-    -- Menu button
-    chaos_gl.rect_rounded(ix, iy, DOCK_ICON, DOCK_ICON, 6, btn_bg)
-    local a_w = chaos_gl.text_width("A")
+    -- Start button (matches dock rounded style)
     local fh = chaos_gl.font_height(-1)
-    chaos_gl.text(ix + (DOCK_ICON - a_w) // 2, iy + (DOCK_ICON - fh) // 2, "A", accent, 0, 0)
-    ix = ix + DOCK_ICON + DOCK_GAP
+    local start_pressed = app_menu_visible
+    local start_bg = start_pressed and accent or btn_bg
+
+    chaos_gl.rect_rounded(ix, iy, START_BTN_W, START_BTN_H, 6, start_bg)
+
+    -- AIOS logo icon (small stylized "A" in accent/white)
+    local ico_c = start_pressed and 0x00FFFFFF or accent
+    local ico_x = ix + 8
+    local ico_y = iy + (START_BTN_H - 14) // 2
+    chaos_gl.rect(ico_x, ico_y + 4, 2, 10, ico_c)
+    chaos_gl.rect(ico_x + 2, ico_y + 2, 2, 4, ico_c)
+    chaos_gl.rect(ico_x + 4, ico_y, 3, 3, ico_c)
+    chaos_gl.rect(ico_x + 9, ico_y + 4, 2, 10, ico_c)
+    chaos_gl.rect(ico_x + 7, ico_y + 2, 2, 4, ico_c)
+    chaos_gl.rect(ico_x + 2, ico_y + 8, 7, 2, ico_c)
+
+    -- "Start" text
+    local start_text_c = start_pressed and 0x00FFFFFF or text_c
+    local start_text = "Start"
+    local tx = ix + 8 + 14 + 4
+    local ty = iy + (START_BTN_H - fh) // 2
+    chaos_gl.text(tx, ty, start_text, start_text_c, 0, 0)
+
+    ix = ix + START_BTN_W + DOCK_GAP
 
     -- App icons
     for _, w in ipairs(wins) do
@@ -316,18 +338,18 @@ function wm._handle_taskbar_click(event)
     local sep_w = (#wins > 0) and (DOCK_GAP + 2 + DOCK_GAP) or 0
     local stats_w = 48
     local clock_w = 50
-    local content_w = DOCK_ICON + DOCK_GAP + app_w + sep_w + stats_w + DOCK_GAP + clock_w
+    local content_w = START_BTN_W + DOCK_GAP + app_w + sep_w + stats_w + DOCK_GAP + clock_w
     local pill_w = content_w + DOCK_PAD * 2
     local pill_x = (1024 - pill_w) // 2
 
     local ix = pill_x + DOCK_PAD
 
-    -- Menu button
-    if mx >= ix and mx < ix + DOCK_ICON then
+    -- Start button
+    if mx >= ix and mx < ix + START_BTN_W then
         wm._toggle_app_menu()
         return
     end
-    ix = ix + DOCK_ICON + DOCK_GAP
+    ix = ix + START_BTN_W + DOCK_GAP
 
     -- App icons
     for _, w in ipairs(wins) do
@@ -636,18 +658,47 @@ function wm._toggle_app_menu()
     end
 end
 
+-- Menu layout constants
+local MENU_ITEM_H = 32
+local MENU_SIDEBAR_W = 24
+local MENU_W = 200
+local MENU_SEP_H = 9      -- separator row height
+
+-- Build the full menu item list (apps + separator + power items)
+local function build_menu_items()
+    local items = {}
+    for _, app in ipairs(app_list) do
+        items[#items + 1] = {kind = "app", name = app.name, path = app.path, tex = app.tex}
+    end
+    items[#items + 1] = {kind = "separator"}
+    items[#items + 1] = {kind = "action", name = "Restart", action = "restart"}
+    items[#items + 1] = {kind = "action", name = "Shut Down", action = "shutdown"}
+    return items
+end
+
+local menu_items = {}
+
 function wm._open_app_menu()
-    if #app_list == 0 then return end
-    local item_h = 32
-    local menu_w = 180
-    local menu_h = #app_list * item_h + 4
+    menu_items = build_menu_items()
+    if #menu_items == 0 then return end
+
+    -- Calculate menu height
+    local menu_h = 4  -- top/bottom padding
+    for _, item in ipairs(menu_items) do
+        if item.kind == "separator" then
+            menu_h = menu_h + MENU_SEP_H
+        else
+            menu_h = menu_h + MENU_ITEM_H
+        end
+    end
+
     local menu_y = 768 - DOCK_H - menu_h - 4
 
-    -- Position above the A button in the dock pill
+    -- Position above the Start button in the dock pill
     local pill_x = calc_dock_pill_x()
     local menu_x = pill_x + DOCK_PAD
 
-    app_menu_surface = chaos_gl.surface_create(menu_w, menu_h, false)
+    app_menu_surface = chaos_gl.surface_create(MENU_W, menu_h, false)
     chaos_gl.surface_set_position(app_menu_surface, menu_x, menu_y)
     chaos_gl.surface_set_zorder(app_menu_surface, 101)
     chaos_gl.surface_set_visible(app_menu_surface, true)
@@ -664,33 +715,74 @@ function wm._draw_app_menu(hover_idx)
     local text_c = theme and theme.menu_text or 0x00FFFFFF
     local hover_c = theme and theme.menu_hover or 0x00444460
     local accent = theme and theme.accent or 0x00FF8800
+    local sep_c = theme and theme.menu_separator or 0x00404048
     local mw, mh = chaos_gl.surface_get_size(app_menu_surface)
-    local item_h = 32
     local afh = chaos_gl.font_height(-1)
 
+    -- Background with rounded border (matches dock style)
     chaos_gl.surface_clear(app_menu_surface, bg)
     chaos_gl.rect_rounded_outline(0, 0, mw, mh, 6, border, 1)
 
-    for i, app in ipairs(app_list) do
-        local y = (i - 1) * item_h + 2
-        if i == hover_idx then
-            chaos_gl.rect_rounded(4, y + 1, mw - 8, item_h - 2, 4, hover_c)
-        end
+    -- Win95-style sidebar strip on the left
+    chaos_gl.rect(2, 2, MENU_SIDEBAR_W, mh - 4, accent)
+    -- Gradient-ish darker strip at bottom of sidebar
+    local sidebar_dark = 0x00882200
+    chaos_gl.rect(2, mh // 2, MENU_SIDEBAR_W, mh // 2 - 2, sidebar_dark)
+    -- "AIOS" text vertically on sidebar (draw each letter stacked)
+    local sidebar_text = "AIOS"
+    local letter_h = afh + 2
+    local text_start_y = mh - 4 - #sidebar_text * letter_h
+    for ci = 1, #sidebar_text do
+        local ch = sidebar_text:sub(ci, ci)
+        local cw = chaos_gl.text_width(ch)
+        chaos_gl.text(2 + (MENU_SIDEBAR_W - cw) // 2, text_start_y + (ci - 1) * letter_h, ch, 0x00FFFFFF, 0, 0)
+    end
 
-        -- App icon (if available)
-        local tx = 12
-        if app.tex and app.tex >= 0 then
-            local iw, ih = chaos_gl.texture_get_size(app.tex)
-            local iy = y + (item_h - ih) // 2
-            if chaos_gl.texture_has_alpha(app.tex) then
-                chaos_gl.blit_alpha(tx, iy, iw, ih, app.tex)
-            else
-                chaos_gl.blit_keyed(tx, iy, iw, ih, app.tex, 0x00FF00FF)
+    -- Draw menu items
+    local y = 2
+    for i, item in ipairs(menu_items) do
+        if item.kind == "separator" then
+            -- Horizontal separator line
+            local sep_y = y + MENU_SEP_H // 2
+            chaos_gl.rect(MENU_SIDEBAR_W + 6, sep_y, mw - MENU_SIDEBAR_W - 10, 1, sep_c)
+            y = y + MENU_SEP_H
+        else
+            -- Hoverable item
+            if i == hover_idx then
+                chaos_gl.rect_rounded(MENU_SIDEBAR_W + 2, y + 1, mw - MENU_SIDEBAR_W - 4, MENU_ITEM_H - 2, 4, hover_c)
             end
-            tx = tx + iw + 8
-        end
 
-        chaos_gl.text(tx, y + (item_h - afh) // 2, app.name, text_c, 0, 0)
+            local tx = MENU_SIDEBAR_W + 10
+
+            if item.kind == "app" and item.tex and item.tex >= 0 then
+                local iw, ih = chaos_gl.texture_get_size(item.tex)
+                local iy = y + (MENU_ITEM_H - ih) // 2
+                if chaos_gl.texture_has_alpha(item.tex) then
+                    chaos_gl.blit_alpha(tx, iy, iw, ih, item.tex)
+                else
+                    chaos_gl.blit_keyed(tx, iy, iw, ih, item.tex, 0x00FF00FF)
+                end
+                tx = tx + iw + 8
+            elseif item.kind == "action" then
+                -- Power icons: small colored indicator
+                local icon_y = y + (MENU_ITEM_H - 8) // 2
+                if item.action == "shutdown" then
+                    chaos_gl.rect(tx + 1, icon_y, 8, 8, 0x00FF4444)
+                    chaos_gl.rect(tx + 4, icon_y - 2, 2, 4, 0x00FF4444)
+                elseif item.action == "restart" then
+                    chaos_gl.rect(tx + 1, icon_y, 8, 8, 0x0044CC44)
+                    chaos_gl.rect(tx + 4, icon_y + 2, 4, 2, bg)
+                end
+                tx = tx + 14
+            end
+
+            local item_text_c = text_c
+            if i == hover_idx then
+                item_text_c = 0x00FFFFFF
+            end
+            chaos_gl.text(tx, y + (MENU_ITEM_H - afh) // 2, item.name, item_text_c, 0, 0)
+            y = y + MENU_ITEM_H
+        end
     end
 
     chaos_gl.surface_present(app_menu_surface)
@@ -698,12 +790,25 @@ end
 
 local app_menu_hover = -1
 
+-- Convert a mouse Y coordinate to menu item index
+local function menu_hit_index(local_y)
+    local y = 2
+    for i, item in ipairs(menu_items) do
+        local h = (item.kind == "separator") and MENU_SEP_H or MENU_ITEM_H
+        if local_y >= y and local_y < y + h then
+            if item.kind == "separator" then return -1 end
+            return i
+        end
+        y = y + h
+    end
+    return -1
+end
+
 function wm._handle_app_menu_hover(event)
     if not app_menu_surface then return end
     local mx, my = chaos_gl.surface_get_position(app_menu_surface)
     local local_y = event.mouse_y - my
-    local idx = math.floor((local_y - 2) / 32) + 1
-    if idx < 1 or idx > #app_list then idx = -1 end
+    local idx = menu_hit_index(local_y)
     if idx ~= app_menu_hover then
         app_menu_hover = idx
         wm._draw_app_menu(app_menu_hover)
@@ -714,10 +819,18 @@ function wm._handle_app_menu_click(event)
     if not app_menu_surface then return end
     local mx, my = chaos_gl.surface_get_position(app_menu_surface)
     local local_y = event.mouse_y - my
-    local idx = math.floor((local_y - 2) / 32) + 1
-    if idx >= 1 and idx <= #app_list then
-        local app = app_list[idx]
-        aios.task.spawn(app.path, app.name)
+    local idx = menu_hit_index(local_y)
+    if idx >= 1 and idx <= #menu_items then
+        local item = menu_items[idx]
+        if item.kind == "app" then
+            aios.task.spawn(item.path, item.name)
+        elseif item.kind == "action" then
+            if item.action == "shutdown" then
+                aios.os.shutdown()
+            elseif item.action == "restart" then
+                aios.os.restart()
+            end
+        end
     end
     wm._close_app_menu()
 end

@@ -31,6 +31,7 @@
 #include "../drivers/ata.h"
 #include "../drivers/ata_dma.h"
 #include "../drivers/pci.h"
+#include "../include/acpi.h"
 #include "chaos/chaos.h"
 #include "chaos/block_cache.h"
 #include "../renderer/chaos_gl.h"
@@ -73,8 +74,15 @@ void kernel_main(struct boot_info* info) {
 
     boot_log("boot_info validation", INIT_OK);
 
-    /* ── Phase 1: Memory ──────────────────────────── */
     init_result_t r;
+
+    /* ACPI table parsing — must happen BEFORE paging is enabled,
+     * because ACPI tables live at high physical addresses that
+     * won't be identity-mapped by the VMM. */
+    r = acpi_init(info);
+    boot_log("ACPI tables", r);
+
+    /* ── Phase 1: Memory ──────────────────────────── */
 
     r = pmm_init(info);
     boot_log("Physical memory manager", r);

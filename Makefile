@@ -173,6 +173,8 @@ C_SOURCES = \
     $(KERNDIR)/phase8_tests.c \
     $(KERNDIR)/phase9_tests.c \
     $(KERNDIR)/phase10_tests.c \
+    $(KERNDIR)/acpi.c \
+    $(KERNDIR)/power.c \
     $(KERNDIR)/boot_splash.c \
     $(KERNDIR)/kaos/kaos.c \
     $(KERNDIR)/kaos/kaos_loader.c \

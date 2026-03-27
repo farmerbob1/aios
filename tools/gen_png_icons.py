@@ -201,6 +201,31 @@ def draw_globe(c):
         c.set(cx + x, cy + y, 80, 170, 230, 180)
         c.set(cx - x, cy + y, 80, 170, 230, 180)
 
+def draw_browser(c):
+    s = c.w
+    # Window frame
+    c.fill_rounded(1, 1, s-2, s-2, 3, 50, 50, 65)
+    # Titlebar
+    c.fill_rect(2, 2, s-4, s//5, 65, 65, 80)
+    # Address bar
+    c.fill_rounded(4, 4, s-8, s//5-4, 2, 40, 40, 55)
+    # Traffic dots
+    c.fill_circle(7, s//10 + 1, 2, 255, 95, 85)
+    c.fill_circle(13, s//10 + 1, 2, 255, 190, 50)
+    c.fill_circle(19, s//10 + 1, 2, 80, 200, 80)
+    # Globe in content area
+    cx, cy = s//2, s//2 + s//8
+    r = s//4
+    c.fill_circle(cx, cy, r, 60, 140, 200)
+    for lat in [-r//2, 0, r//2]:
+        w = int(math.sqrt(max(0, r*r - lat*lat)))
+        c.fill_rect(cx - w, cy + lat, w*2, 1, 80, 170, 230, 180)
+    c.fill_rect(cx, cy - r, 1, r*2, 80, 170, 230, 180)
+    for y in range(-r, r+1):
+        x = int(r//3 * math.sqrt(max(0, 1 - (y/r)**2)))
+        c.set(cx + x, cy + y, 80, 170, 230, 180)
+        c.set(cx - x, cy + y, 80, 170, 230, 180)
+
 def draw_chart(c):
     s = c.w
     # Background
@@ -261,6 +286,7 @@ icons = [
     ("globe",    [32, 48], draw_globe),
     ("sysmon",   [32, 48], draw_chart),
     ("edit",     [32, 48], draw_pencil),
+    ("browser",  [32, 48], draw_browser),
 ]
 
 os.makedirs(ICON_DIR, exist_ok=True)

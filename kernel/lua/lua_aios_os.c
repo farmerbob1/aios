@@ -10,6 +10,7 @@
 #include "../chaos/block_cache.h"
 #include "../../drivers/serial.h"
 #include "../../drivers/timer.h"
+#include "../../include/power.h"
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -130,6 +131,22 @@ static int l_os_time(lua_State *L) {
     return 1;
 }
 
+/* aios.os.shutdown() */
+static int l_os_shutdown(lua_State *L) {
+    (void)L;
+    serial_print("[aios.os] Shutdown requested from Lua\n");
+    system_shutdown();
+    return 0;  /* unreachable */
+}
+
+/* aios.os.restart() */
+static int l_os_restart(lua_State *L) {
+    (void)L;
+    serial_print("[aios.os] Restart requested from Lua\n");
+    system_restart();
+    return 0;  /* unreachable */
+}
+
 static const luaL_Reg os_funcs[] = {
     {"ticks",        l_os_ticks},
     {"millis",       l_os_millis},
@@ -142,6 +159,8 @@ static const luaL_Reg os_funcs[] = {
     {"version",      l_os_version},
     {"cache_stats",  l_os_cache_stats},
     {"cache_flush",  l_os_cache_flush},
+    {"shutdown",     l_os_shutdown},
+    {"restart",      l_os_restart},
     {NULL, NULL}
 };
 

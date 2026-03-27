@@ -84,6 +84,9 @@ struct boot_info {
 
     /* Boot flags */
     uint32_t boot_flags;
+
+    /* ACPI RSDP physical address (populated by UEFI bootloader) */
+    uint32_t acpi_rsdp;
 } __attribute__((packed));
 
 /* Total struct size: ~1420 bytes. Well within the 4KB page at 0x10000. */

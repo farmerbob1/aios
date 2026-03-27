@@ -80,6 +80,7 @@ typedef struct {
     UINT16       vbe_current_mode;
     VBEModeEntry vbe_modes[MAX_VBE_MODES];
     UINT32       boot_flags;
+    UINT32       acpi_rsdp;
 } BootInfo;
 
 /* ELF32 headers */
@@ -643,7 +644,35 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *systab) {
         return status;
     }
 
-    /* ── Step 3: Finalize boot_info ──────────────────── */
+    /* ── Step 3: Retrieve ACPI RSDP from System Table ── */
+    {
+        /* ACPI 2.0+ RSDP GUID: {8868e871-e4f1-11d3-bc22-0080c73c8881} */
+        EFI_GUID acpi20_guid = { 0x8868e871, 0xe4f1, 0x11d3,
+            { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } };
+        /* ACPI 1.0 RSDP GUID: {eb9d2d30-2d88-11d3-9a16-0090273fc14d} */
+        EFI_GUID acpi10_guid = { 0xeb9d2d30, 0x2d88, 0x11d3,
+            { 0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
+
+        bi->acpi_rsdp = 0;
+        /* Prefer ACPI 2.0+ XSDP, fall back to ACPI 1.0 RSDP */
+        for (UINTN i = 0; i < gST->NumberOfTableEntries; i++) {
+            EFI_CONFIGURATION_TABLE *ct = &gST->ConfigurationTable[i];
+            if (guid_eq(&ct->VendorGuid, &acpi20_guid)) {
+                bi->acpi_rsdp = (UINT32)(UINTN)ct->VendorTable;
+                serial_print("[UEFI] Found ACPI 2.0+ RSDP\n");
+                break;
+            }
+            if (guid_eq(&ct->VendorGuid, &acpi10_guid) && bi->acpi_rsdp == 0) {
+                bi->acpi_rsdp = (UINT32)(UINTN)ct->VendorTable;
+                serial_print("[UEFI] Found ACPI 1.0 RSDP\n");
+            }
+        }
+        if (bi->acpi_rsdp == 0) {
+            serial_print("[UEFI] WARNING: No ACPI RSDP found in configuration table\n");
+        }
+    }
+
+    /* ── Step 4: Finalize boot_info ──────────────────── */
     bi->magic = BOOT_MAGIC;
     bi->version = 1;
     bi->boot_flags = 1;  /* Flag 1 = UEFI boot (informational) */
@@ -651,7 +680,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *systab) {
     serial_print("[UEFI] boot_info populated at 0x10000\n");
     print(u"Kernel loaded. Entering kernel...\r\n");
 
-    /* ── Step 4: Get memory map (MUST be last BS call) ─ */
+    /* ── Step 5: Get memory map (MUST be last BS call) ─ */
     UINTN map_key = 0;
     UINTN e820_count = get_memory_map(bi, &map_key);
     if (e820_count == 0) {
@@ -659,7 +688,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *systab) {
         return EFI_LOAD_ERROR;
     }
 
-    /* ── Step 5: Exit Boot Services ──────────────────── */
+    /* ── Step 6: Exit Boot Services ──────────────────── */
     status = gBS->ExitBootServices(gImageHandle, map_key);
     if (EFI_ERROR(status)) {
         /* Map key may have changed, retry once */
@@ -689,7 +718,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *systab) {
 
     serial_print("[UEFI] Boot services exited. Entering 32-bit mode...\n");
 
-    /* ── Step 6: Transition to 32-bit and jump to kernel ─ */
+    /* ── Step 7: Transition to 32-bit and jump to kernel ─ */
     enter_32bit_and_jump(bi->kernel_entry, BOOT_INFO_PHYS);
 
     /* Never reached */

@@ -45,7 +45,7 @@ struct lua_mem_stats {
     size_t limit_bytes;
 };
 
-#define LUA_DEFAULT_MEM_LIMIT (32 * 1024 * 1024)  /* 32MB per Lua state */
+#define LUA_DEFAULT_MEM_LIMIT (128 * 1024 * 1024) /* 128MB per Lua state */
 
 /* Panic handler */
 static int lua_aios_panic(lua_State *L) {
@@ -143,6 +143,9 @@ lua_State *lua_state_create(void) {
     aios_register_net(L);
     aios_register_audio(L);
     aios_register_cpk(L);
+
+    extern void aios_register_html(lua_State *L);
+    aios_register_html(L);
 
     /* Register event type constants — must match input.h enum */
     lua_pushinteger(L, EVENT_KEY_DOWN);    lua_setglobal(L, "EVENT_KEY_DOWN");

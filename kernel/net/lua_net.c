@@ -947,6 +947,57 @@ static int l_net_udp_close(lua_State *L) {
     return 1;
 }
 
+/* ── HTTP Response Parsing (via picohttpparser) ────────────── */
+
+#include "../../vendor/picohttpparser.h"
+
+/* aios.net.parse_http(raw_data) → status, headers_table, body_string */
+static int l_net_parse_http(lua_State *L) {
+    size_t raw_len;
+    const char *raw = luaL_checklstring(L, 1, &raw_len);
+
+    int minor_version, status;
+    const char *msg;
+    size_t msg_len;
+    struct phr_header headers[64];
+    size_t num_headers = 64;
+
+    int consumed = phr_parse_response(raw, raw_len, &minor_version, &status,
+                                       &msg, &msg_len, headers, &num_headers, 0);
+    if (consumed < 0) {
+        lua_pushnil(L);
+        lua_pushnil(L);
+        lua_pushlstring(L, raw, raw_len); /* return raw as body fallback */
+        return 3;
+    }
+
+    /* Push status */
+    lua_pushinteger(L, status);
+
+    /* Build headers table */
+    lua_newtable(L);
+    for (size_t i = 0; i < num_headers; i++) {
+        if (headers[i].name) {
+            /* Lowercase the header name */
+            char key[256];
+            size_t klen = headers[i].name_len;
+            if (klen > 255) klen = 255;
+            for (size_t j = 0; j < klen; j++) {
+                char c = headers[i].name[j];
+                key[j] = (c >= 'A' && c <= 'Z') ? c + 32 : c;
+            }
+            key[klen] = 0;
+            lua_pushlstring(L, headers[i].value, headers[i].value_len);
+            lua_setfield(L, -2, key);
+        }
+    }
+
+    /* Push body (everything after headers) */
+    lua_pushlstring(L, raw + consumed, raw_len - (size_t)consumed);
+
+    return 3;
+}
+
 /* ── Registration ───────────────────────────────────────── */
 
 static const luaL_Reg net_funcs[] = {
@@ -967,6 +1018,7 @@ static const luaL_Reg net_funcs[] = {
     {"udp_sendto",      l_net_udp_sendto},
     {"udp_recvfrom",    l_net_udp_recvfrom},
     {"udp_close",       l_net_udp_close},
+    {"parse_http",      l_net_parse_http},
     {NULL, NULL}
 };
 

@@ -385,6 +385,14 @@ static int l_texture_load(lua_State *L) {
     return 1;
 }
 
+static int l_texture_load_from_memory(lua_State *L) {
+    size_t len;
+    const char *data = luaL_checklstring(L, 1, &len);
+    int handle = chaos_gl_texture_load_from_memory((const uint8_t *)data, (uint32_t)len);
+    lua_pushinteger(L, handle);
+    return 1;
+}
+
 static int l_texture_free(lua_State *L) {
     int handle = (int)luaL_checkinteger(L, 1);
     chaos_gl_texture_free(handle);
@@ -703,6 +711,83 @@ static int l_get_screen_size(lua_State *L) {
     return 2;
 }
 
+/* ── Screenshot — save surface to BMP file ───────────── */
+
+extern int chaos_open(const char *path, int flags);
+extern int chaos_write(int fd, const void *buf, uint32_t count);
+extern int chaos_close(int fd);
+
+static int l_surface_save_bmp(lua_State *L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    const char *path = luaL_checkstring(L, 2);
+
+    chaos_gl_surface_t *s = chaos_gl_get_surface(handle);
+    if (!s || !s->in_use || !s->bufs[s->buf_index]) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    int w = s->width, h = s->height;
+    uint32_t *pixels = s->bufs[s->buf_index];
+    uint32_t row_size = (uint32_t)w * 3;
+    uint32_t row_pad = (4 - (row_size % 4)) % 4;
+    uint32_t row_stride = row_size + row_pad;
+    uint32_t pixel_data_size = row_stride * (uint32_t)h;
+    uint32_t file_size = 54 + pixel_data_size;
+
+    /* BMP header (14 bytes) + DIB header (40 bytes) = 54 bytes */
+    uint8_t hdr[54];
+    memset(hdr, 0, 54);
+    /* BMP signature */
+    hdr[0] = 'B'; hdr[1] = 'M';
+    /* File size */
+    hdr[2] = file_size & 0xFF; hdr[3] = (file_size >> 8) & 0xFF;
+    hdr[4] = (file_size >> 16) & 0xFF; hdr[5] = (file_size >> 24) & 0xFF;
+    /* Pixel data offset */
+    hdr[10] = 54;
+    /* DIB header size */
+    hdr[14] = 40;
+    /* Width */
+    hdr[18] = w & 0xFF; hdr[19] = (w >> 8) & 0xFF;
+    /* Height (negative = top-down) */
+    int neg_h = -h;
+    hdr[22] = neg_h & 0xFF; hdr[23] = (neg_h >> 8) & 0xFF;
+    hdr[24] = (neg_h >> 16) & 0xFF; hdr[25] = (neg_h >> 24) & 0xFF;
+    /* Planes */
+    hdr[26] = 1;
+    /* Bits per pixel */
+    hdr[28] = 24;
+
+    /* Write to ChaosFS */
+    int fd = chaos_open(path, 0x02 | 0x04);  /* WRONLY | CREATE */
+    if (fd < 0) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    chaos_write(fd, hdr, 54);
+
+    /* Write pixel rows (BGRX → BGR, top-down) */
+    uint8_t row_buf[4096];  /* enough for 1365px wide */
+    for (int y = 0; y < h; y++) {
+        int bpos = 0;
+        for (int x = 0; x < w && bpos + 3 <= (int)sizeof(row_buf); x++) {
+            uint32_t px = pixels[y * w + x];
+            row_buf[bpos++] = (uint8_t)(px);        /* B */
+            row_buf[bpos++] = (uint8_t)(px >> 8);   /* G */
+            row_buf[bpos++] = (uint8_t)(px >> 16);  /* R */
+        }
+        /* Padding */
+        for (uint32_t p = 0; p < row_pad; p++) row_buf[bpos++] = 0;
+        chaos_write(fd, row_buf, row_stride);
+    }
+
+    chaos_close(fd);
+    serial_printf("[screenshot] saved %dx%d to %s\n", w, h, path);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
 /* ── Registration ────────────────────────────────────── */
 
 static const struct luaL_Reg chaosgl_funcs[] = {
@@ -757,6 +842,7 @@ static const struct luaL_Reg chaosgl_funcs[] = {
     /* Textures */
     {"load_texture",         l_texture_load},
     {"texture_load",         l_texture_load},
+    {"texture_load_from_memory", l_texture_load_from_memory},
     {"free_texture",         l_texture_free},
     {"texture_free",         l_texture_free},
     {"texture_get_size",     l_texture_get_size},
@@ -769,6 +855,7 @@ static const struct luaL_Reg chaosgl_funcs[] = {
     {"set_camera",           l_set_camera},
     {"set_perspective",      l_set_perspective},
     {"set_transform",        l_set_transform},
+    {"surface_save_bmp",     l_surface_save_bmp},
     {"model_create",         l_model_create},
     {"model_set_vertex",     l_model_set_vertex},
     {"model_set_normal",     l_model_set_normal},

@@ -2,6 +2,9 @@
 local AppWindow = require("appwindow")
 local ui = require("core")
 local prefs = require("lib/prefs")
+local Button = require("button")
+local Slider = require("slider")
+local ProgressBar = require("progressbar")
 
 local win = AppWindow.new("Settings", 500, 400, {x=120, y=60})
 
@@ -50,15 +53,14 @@ local function row(y, label, value)
 end
 
 -- Helper: progress bar
+local _pb_temp = ProgressBar.new({w=180, h=10})
 local function progress(y, label, pct, w)
     chaos_gl.text(24, y, label, theme.text_secondary or 0x00AAAAAA, 0, 0)
-    local bx, bw = 200, w or 200
-    local track = theme.slider_track or theme.field_bg or 0x00333333
-    local fill_c = theme.accent or 0x00FF8800
-    chaos_gl.rect(bx, y + 2, bw, 10, track)
-    local fill = math.max(0, math.min(1, pct)) * bw
-    chaos_gl.rect(bx, y + 2, math.floor(fill), 10, fill_c)
-    chaos_gl.text(bx + bw + 8, y, string.format("%.0f%%", pct * 100),
+    _pb_temp.w = w or 180
+    _pb_temp.value = math.floor(math.max(0, math.min(1, pct)) * 100)
+    _pb_temp.max = 100
+    _pb_temp:draw(200, y + 2)
+    chaos_gl.text(200 + (w or 180) + 8, y, string.format("%.0f%%", pct * 100),
                   theme.text_secondary or 0x00AAAAAA, 0, 0)
     return y + 20
 end
@@ -115,6 +117,23 @@ end
 refresh_data()
 pcall(aios.audio.volume, volume_level)
 
+-- Widgets
+local btn_dark  = Button.new("Dark", function()
+    ui.set_theme("/system/themes/dark.lua"); cur_theme = "dark"
+end, {w=130, h=30})
+local btn_light = Button.new("Light", function()
+    ui.set_theme("/system/themes/light.lua"); cur_theme = "light"
+end, {w=130, h=30})
+local vol_slider = Slider.new(0, 100, volume_level, function(v)
+    volume_level = math.floor(v)
+    pcall(aios.audio.volume, volume_level)
+    prefs.put("volume", volume_level)
+end, {w=260, h=16})
+local pb_ram  = ProgressBar.new({w=200, h=12})
+local pb_heap = ProgressBar.new({w=200, h=12})
+local pb_cpu  = ProgressBar.new({w=200, h=12})
+local settings_widgets = {btn_dark, btn_light, vol_slider, pb_ram, pb_heap, pb_cpu}
+
 while win:is_running() do
     win:begin_frame()
 
@@ -149,8 +168,11 @@ while win:is_running() do
         -- ═══ Appearance ═══
         y = section(y, "Theme")
 
-        draw_button(24, y, 130, 32, "Dark", cur_theme == "dark")
-        draw_button(170, y, 130, 32, "Light", cur_theme == "light")
+        -- Use real Button widgets
+        btn_dark.pressed = (cur_theme == "dark")
+        btn_light.pressed = (cur_theme == "light")
+        btn_dark:draw(24, y)
+        btn_light:draw(170, y)
         y = y + 48
 
         -- Mini preview
@@ -194,16 +216,8 @@ while win:is_running() do
         -- ═══ Sound ═══
         y = section(y, "Master Volume")
 
-        local vol_w = 260
-        local track = theme.slider_track or theme.field_bg or 0x00333333
-        local thumb = theme.slider_thumb_color or 0x00FFFFFF
-        local fill_c = theme.accent or 0x00FF8800
-        chaos_gl.rect(24, y + 4, vol_w, 8, track)
-        local fill_px = math.floor(vol_w * volume_level / 100)
-        chaos_gl.rect(24, y + 4, fill_px, 8, fill_c)
-        chaos_gl.circle(24 + fill_px, y + 8, 7, thumb)
-        chaos_gl.text(vol_w + 40, y + 1, tostring(volume_level) .. "%",
-                      theme.text_primary or 0x00FFFFFF, 0, 0)
+        vol_slider.value = volume_level
+        vol_slider:draw(24, y)
         y = y + 28
 
         if volume_level == 0 then
@@ -305,7 +319,13 @@ while win:is_running() do
     -- ═══ Events ═══
     local content_y = 68
     for _, event in ipairs(win:poll_events()) do
-        if event.type == EVENT_MOUSE_DOWN and event.button == 1 then
+        -- Forward to widgets
+        local handled = false
+        for _, w in ipairs(settings_widgets) do
+            if w.on_input and w:on_input(event) then handled = true; break end
+        end
+
+        if not handled and event.type == EVENT_MOUSE_DOWN and event.button == 1 then
             local mx, my = event.mouse_x, event.mouse_y
 
             -- Tab clicks
@@ -318,29 +338,6 @@ while win:is_running() do
                         break
                     end
                     ttx = ttx + tw
-                end
-
-            -- Appearance: theme buttons
-            elseif active_tab == 1 then
-                local by = content_y + 24
-                if my >= by and my < by + 32 then
-                    if mx >= 24 and mx < 154 then
-                        ui.set_theme("/system/themes/dark.lua")
-                        cur_theme = "dark"
-                    elseif mx >= 170 and mx < 300 then
-                        ui.set_theme("/system/themes/light.lua")
-                        cur_theme = "light"
-                    end
-                end
-
-            -- Sound: volume click
-            elseif active_tab == 3 then
-                local vy = content_y + 24
-                if my >= vy and my < vy + 16 and mx >= 24 and mx < 284 then
-                    volume_level = math.floor(((mx - 24) / 260) * 100 + 0.5)
-                    volume_level = math.max(0, math.min(100, volume_level))
-                    pcall(aios.audio.volume, volume_level)
-                    prefs.put("volume", volume_level)
                 end
             end
 

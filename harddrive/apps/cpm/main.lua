@@ -1,5 +1,6 @@
 -- AIOS v2 — Chaos Package Manager GUI
 local AppWindow = require("appwindow")
+local Button = require("button")
 local win = AppWindow.new("Packages", 500, 400, {x=100, y=60})
 
 local cpm = require("cpm")
@@ -86,9 +87,11 @@ set_status("Press Refresh to fetch packages")
 -- Button hit test helper
 local _buttons = {}
 local function draw_button(x, y, w, h, label, color)
-    chaos_gl.rect_rounded(x, y, w, h, 4, color)
+    local radius = theme and theme.button_radius or 4
+    chaos_gl.rect_rounded(x, y, w, h, radius, color)
     local tw = chaos_gl.text_width(label)
-    chaos_gl.text(x + (w - tw) // 2, y + (h - 12) // 2, label, 0x00FFFFFF, 0, 0)
+    local fg = theme and theme.button_text or 0x00FFFFFF
+    chaos_gl.text(x + (w - tw) // 2, y + (h - 12) // 2, label, fg, 0, 0)
     _buttons[#_buttons + 1] = {x=x, y=y, w=w, h=h, label=label}
 end
 

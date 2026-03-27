@@ -1,5 +1,6 @@
 -- AIOS v2 — Static File HTTP Web Server
 local AppWindow = require("appwindow")
+local Label = require("label")
 -- Serves files from /apps/webserver/www/
 
 local win = AppWindow.new("Web Server", 400, 350, {x=200, y=120})
@@ -149,21 +150,22 @@ while win:is_running() do
     local sec_c = theme and theme.text_secondary or 0x00AAAAAA
     local accent = theme and theme.accent or 0x00FF8800
 
-    -- Status panel
+    -- Status panel using Labels
     local info = aios.net.ifconfig() or {}
     local status_color = started and 0x0044FF44 or 0x00FF4444
-    local status_text = started and "RUNNING" or "STOPPED"
     local py = TITLEBAR_H + 8
-    chaos_gl.text(12, py, "Status:", sec_c, 0, 0)
-    chaos_gl.text(80, py, status_text, status_color, 0, 0)
-    chaos_gl.text(12, py + 16, "Address:", sec_c, 0, 0)
-    chaos_gl.text(80, py + 16, (info.ip or "...") .. ":" .. PORT, text_c, 0, 0)
-    chaos_gl.text(12, py + 32, "Requests:", sec_c, 0, 0)
-    chaos_gl.text(80, py + 32, tostring(request_count), accent, 0, 0)
+
+    Label.new("Status:"):draw(12, py)
+    Label.new(started and "RUNNING" or "STOPPED", {color=status_color}):draw(80, py)
+    Label.new("Address:"):draw(12, py + 16)
+    Label.new((info.ip or "...") .. ":" .. PORT):draw(80, py + 16)
+    Label.new("Requests:"):draw(12, py + 32)
+    Label.new(tostring(request_count), {color=accent}):draw(80, py + 32)
 
     -- Separator
     local sep_y = py + 50
-    chaos_gl.rect(8, sep_y, sw - 16, 1, 0x00444444)
+    local sep_c = theme and theme.border or 0x00444444
+    chaos_gl.rect(8, sep_y, sw - 16, 1, sep_c)
 
     -- Log area
     chaos_gl.text(12, sep_y + 6, "Request Log:", sec_c, 0, 0)

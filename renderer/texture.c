@@ -1,8 +1,13 @@
 /* ChaosGL Texture Subsystem — loads textures from ChaosFS into PMM pages
- * Supports: RAWT (.raw), PNG, JPEG, BMP, GIF via stb_image */
+ * Supports: RAWT (.raw), PNG, JPEG, BMP, GIF via stb_image, SVG via NanoSVG */
 
 #include "texture.h"
 #include "stb_image_decode.h"
+
+/* SVG decode (from svg_decode.c, compiled separately with NSVG_CFLAGS) */
+uint8_t *svg_decode_from_memory_bgra(const uint8_t *data, uint32_t len,
+                                      int *out_w, int *out_h);
+int svg_detect(const uint8_t *data, uint32_t len);
 #include "../kernel/pmm.h"
 #include "../kernel/vmm.h"
 #include "../kernel/heap.h"
@@ -95,6 +100,18 @@ int chaos_gl_texture_load(const char* path) {
         has_alpha = false;
         /* Pixels are at file_buf + 16, we'll copy directly to PMM below */
         pixel_data = NULL;  /* Signal to use file_buf + 16 */
+    } else if (svg_detect(file_buf, total_read)) {
+        /* SVG: parse and rasterize via NanoSVG */
+        int iw, ih;
+        pixel_data = svg_decode_from_memory_bgra(file_buf, total_read, &iw, &ih);
+        if (!pixel_data) {
+            serial_printf("[texture] SVG decode failed for '%s'\n", path);
+            kfree(file_buf);
+            return -1;
+        }
+        w = (uint32_t)iw;
+        h = (uint32_t)ih;
+        has_alpha = true;
     } else if (fmt == STBI_FMT_PNG || fmt == STBI_FMT_JPEG ||
                fmt == STBI_FMT_BMP || fmt == STBI_FMT_GIF) {
         /* Decode via stb_image */
@@ -153,6 +170,57 @@ int chaos_gl_texture_load(const char* path) {
     textures[handle].pitch     = (int)w;
     textures[handle].in_use    = true;
     textures[handle].has_alpha = has_alpha;
+    textures[handle].phys_addr = phys;
+    textures[handle].pages     = pages;
+
+    return handle;
+}
+
+int chaos_gl_texture_load_from_memory(const uint8_t* data, uint32_t len) {
+    if (!data || len == 0) return -1;
+
+    int iw, ih, ia;
+    uint8_t *pixel_data = NULL;
+
+    /* Try SVG first if it looks like XML/SVG */
+    if (svg_detect(data, len)) {
+        pixel_data = svg_decode_from_memory_bgra(data, len, &iw, &ih);
+        ia = 1;
+    }
+
+    /* Fall back to stb_image (PNG/JPEG/BMP/GIF) */
+    if (!pixel_data) {
+        pixel_data = stbi_decode_from_memory_bgra(data, (int)len, &iw, &ih, &ia);
+    }
+    if (!pixel_data) return -1;
+
+    if ((uint32_t)iw > CHAOS_GL_MAX_TEX_SIZE || (uint32_t)ih > CHAOS_GL_MAX_TEX_SIZE) {
+        kfree(pixel_data);
+        return -1;
+    }
+
+    int handle = -1;
+    for (int i = 0; i < CHAOS_GL_MAX_TEXTURES; i++) {
+        if (!textures[i].in_use) { handle = i; break; }
+    }
+    if (handle < 0) { kfree(pixel_data); return -1; }
+
+    uint32_t pixel_size = (uint32_t)iw * (uint32_t)ih * 4;
+    uint32_t pages = (pixel_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    uint32_t phys = pmm_alloc_pages(pages);
+    if (phys == 0) { kfree(pixel_data); return -1; }
+
+    vmm_map_range(phys, phys, pages * PAGE_SIZE, PTE_PRESENT | PTE_WRITABLE);
+    heap_mark_reserved(phys, pages);
+    memcpy((void *)phys, pixel_data, pixel_size);
+    kfree(pixel_data);
+
+    textures[handle].data      = (uint32_t *)phys;
+    textures[handle].width     = iw;
+    textures[handle].height    = ih;
+    textures[handle].pitch     = iw;
+    textures[handle].in_use    = true;
+    textures[handle].has_alpha = (ia != 0);
     textures[handle].phys_addr = phys;
     textures[handle].pages     = pages;
 

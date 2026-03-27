@@ -48,8 +48,8 @@ init_result_t heap_init(struct boot_info* info) {
                   ownership_phys, ownership_page_count, total_phys_pages);
 
     /* Step 3-4: Allocate buddy region */
-    /* Try 64MB (16384 pages), fall back to smaller */
-    static const uint32_t try_sizes[] = { 16384, 8192, 4096, 2048, 1024, 256, 0 };
+    /* Try 128MB (32768 pages), fall back to smaller */
+    static const uint32_t try_sizes[] = { 32768, 16384, 8192, 4096, 2048, 1024, 256, 0 };
     buddy_region_start = 0;
     buddy_region_size = 0;
 

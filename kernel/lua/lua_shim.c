@@ -1096,3 +1096,14 @@ int remove(const char *path) { (void)path; return -1; }
 int rename(const char *oldpath, const char *newpath) { (void)oldpath; (void)newpath; return -1; }
 FILE *freopen(const char *path, const char *mode, FILE *stream) { (void)path; (void)mode; (void)stream; return NULL; }
 int getc(FILE *stream) { return fgetc(stream); }
+int putc(int c, FILE *stream) { (void)stream; serial_putchar((char)c); return c; }
+int fputc(int c, FILE *stream) { (void)stream; serial_putchar((char)c); return c; }
+int putchar(int c) { serial_putchar((char)c); return c; }
+int puts(const char *s) { serial_print(s); serial_putchar('\n'); return 0; }
+int vfprintf(FILE *stream, const char *fmt, va_list ap) {
+    (void)stream;
+    char buf[1024];
+    int ret = vsnprintf(buf, sizeof(buf), fmt, ap);
+    serial_print(buf);
+    return ret;
+}

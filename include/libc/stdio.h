@@ -52,6 +52,11 @@ int remove(const char *path);
 int rename(const char *oldpath, const char *newpath);
 FILE *freopen(const char *path, const char *mode, FILE *stream);
 int getc(FILE *stream);
+int putc(int c, FILE *stream);
+int fputc(int c, FILE *stream);
+int putchar(int c);
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
+int vfprintf(FILE *stream, const char *fmt, va_list ap);
+int puts(const char *s);
 
 #endif

@@ -110,9 +110,30 @@ static int l_os_cache_flush(lua_State *L) {
     return 0;
 }
 
+/* aios.os.time() → {year, month, day, hour, min, sec, synced} */
+static int l_os_time(lua_State *L) {
+    extern uint32_t sysclock_unix(void);
+    extern bool     sysclock_synced(void);
+    extern void     sysclock_datetime(int*,int*,int*,int*,int*,int*);
+
+    lua_newtable(L);
+    int y, mo, d, h, mi, s;
+    sysclock_datetime(&y, &mo, &d, &h, &mi, &s);
+    lua_pushinteger(L, y);  lua_setfield(L, -2, "year");
+    lua_pushinteger(L, mo); lua_setfield(L, -2, "month");
+    lua_pushinteger(L, d);  lua_setfield(L, -2, "day");
+    lua_pushinteger(L, h);  lua_setfield(L, -2, "hour");
+    lua_pushinteger(L, mi); lua_setfield(L, -2, "min");
+    lua_pushinteger(L, s);  lua_setfield(L, -2, "sec");
+    lua_pushinteger(L, (lua_Integer)sysclock_unix()); lua_setfield(L, -2, "unix");
+    lua_pushboolean(L, sysclock_synced()); lua_setfield(L, -2, "synced");
+    return 1;
+}
+
 static const luaL_Reg os_funcs[] = {
     {"ticks",        l_os_ticks},
     {"millis",       l_os_millis},
+    {"time",         l_os_time},
     {"frequency",    l_os_frequency},
     {"sleep",        l_os_sleep},
     {"exit",         l_os_exit},

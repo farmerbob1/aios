@@ -142,6 +142,7 @@ function ui.focus_prev()
 end
 
 function ui.set_focus(widget)
+    -- Check focus chain first (container-managed widgets)
     for i, w in ipairs(focus_chain) do
         if w == widget then
             if focus_index > 0 and focus_index <= #focus_chain then
@@ -151,6 +152,21 @@ function ui.set_focus(widget)
             widget:on_focus()
             return
         end
+    end
+    -- Standalone widget (not in a container) — focus directly
+    if widget.focusable then
+        -- Blur the old focused widget in the chain
+        if focus_index > 0 and focus_index <= #focus_chain then
+            focus_chain[focus_index]:on_blur()
+            focus_index = 0
+        end
+        -- Blur previous standalone focused widget
+        if ui._standalone_focused and ui._standalone_focused ~= widget then
+            ui._standalone_focused.focused = false
+            if ui._standalone_focused.on_blur then ui._standalone_focused:on_blur() end
+        end
+        ui._standalone_focused = widget
+        widget:on_focus()
     end
 end
 

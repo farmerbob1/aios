@@ -42,8 +42,10 @@ while win:is_running() do
         local cs = chaos_gl.get_compose_stats()
         render_history[history_idx] = cs and (cs.compose_time_us or 0) or 0
         local info = aios.os.meminfo()
-        if info and info.pmm_total_pages and info.pmm_total_pages > 0 then
-            mem_history[history_idx] = math.floor((1.0 - info.pmm_free_pages / info.pmm_total_pages) * 100)
+        local ram_pages = info and (info.pmm_ram_pages or info.pmm_total_pages) or 1
+        if ram_pages > 0 then
+            local used = ram_pages - (info.pmm_free_pages or 0)
+            mem_history[history_idx] = math.floor(used / ram_pages * 100)
         end
     end
 
@@ -62,7 +64,7 @@ while win:is_running() do
         local vw = chaos_gl.text_width(value_str)
         chaos_gl.text(sw - 12 - vw, gy, value_str, color, 0, 0)
         gy = gy + fh + 2
-        chaos_gl.rect(12, gy, graph_w, graph_h, 0x00222233)
+        chaos_gl.rect(12, gy, graph_w, graph_h, theme and theme.field_bg or 0x00222233)
         for i = 1, MAX_HISTORY do
             local idx = ((history_idx + i - 1) % MAX_HISTORY) + 1
             local pct = math.min(1.0, history[idx] / max_val)
@@ -71,7 +73,7 @@ while win:is_running() do
                 chaos_gl.rect(12 + (i - 1) * bar_w, gy + graph_h - bh, bar_w, bh, color)
             end
         end
-        chaos_gl.rect_outline(12, gy, graph_w, graph_h, 0x00444455, 1)
+        chaos_gl.rect_outline(12, gy, graph_w, graph_h, theme and theme.border or 0x00444455, 1)
         return gy + graph_h + 6
     end
 
@@ -84,11 +86,15 @@ while win:is_running() do
 
     local info = aios.os.meminfo()
     local mem_str = "N/A"
-    if info and info.pmm_total_pages and info.pmm_total_pages > 0 then
-        local mem_pct = math.floor((1.0 - info.pmm_free_pages / info.pmm_total_pages) * 100)
-        local used_kb = (info.pmm_total_pages - info.pmm_free_pages) * 4
-        local total_kb = info.pmm_total_pages * 4
-        mem_str = string.format("%dMB / %dMB (%d%%)", used_kb // 1024, total_kb // 1024, mem_pct)
+    if info then
+        local rp = info.pmm_ram_pages or info.pmm_total_pages or 0
+        local fp = info.pmm_free_pages or 0
+        if rp > 0 then
+            local used_mb = (rp - fp) * 4 // 1024
+            local total_mb = rp * 4 // 1024
+            local pct = math.floor((rp - fp) / rp * 100)
+            mem_str = string.format("%dMB / %dMB (%d%%)", used_mb, total_mb, pct)
+        end
     end
     y = draw_graph("Memory", mem_str, mem_history, 100, 0x004488FF, y)
 

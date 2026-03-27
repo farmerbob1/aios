@@ -62,7 +62,7 @@ static inline void *lwip_calloc(unsigned int count, unsigned int size) {
 
 /* ── TCP ────────────────────────────────────────────────── */
 #define TCP_MSS                 1460
-#define TCP_WND                 (4 * TCP_MSS)
+#define TCP_WND                 (12 * TCP_MSS)
 #define TCP_SND_BUF             (4 * TCP_MSS)
 #define TCP_SND_QUEUELEN        (4 * TCP_SND_BUF / TCP_MSS)
 #define TCP_QUEUE_OOSEQ         1
@@ -100,6 +100,16 @@ static inline void *lwip_calloc(unsigned int count, unsigned int size) {
 
 /* ── Error handling ─────────────────────────────────────── */
 #define LWIP_PROVIDE_ERRNO      1
+
+/* ── SNTP (Network Time Protocol) ───────────────────────── */
+#define LWIP_SNTP                   1
+#define SNTP_SERVER_DNS             1
+#define SNTP_MAX_SERVERS            2
+#define SNTP_UPDATE_DELAY           3600000  /* Re-sync every hour (ms) */
+
+/* SNTP calls this when time is received. Defined in sysclock.c */
+extern void aios_set_system_time(unsigned int sec);
+#define SNTP_SET_SYSTEM_TIME(sec)   aios_set_system_time(sec)
 
 /* ── Misc ───────────────────────────────────────────────── */
 #define LWIP_STATS              0

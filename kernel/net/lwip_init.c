@@ -117,5 +117,9 @@ init_result_t lwip_stack_init(void) {
 
     serial_printf("[lwip] stack ready (lwIP %s)\n", LWIP_VERSION_STRING);
 
+    /* Start SNTP for system clock */
+    extern void sysclock_init(void);
+    sysclock_init();
+
     return INIT_OK;
 }

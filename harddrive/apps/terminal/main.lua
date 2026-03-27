@@ -299,8 +299,8 @@ while win:is_running() do
     win.title = "Terminal [" .. cwd .. "]"
     win:begin_frame()
 
-    local bg = 0x001A1A2E
-    local prompt_c = 0x0044FF44
+    local bg = theme and theme.field_bg or 0x001A1A2E
+    local prompt_c = theme and theme.accent or 0x0044FF44
 
     -- Output area
     local output_y = 30
@@ -331,20 +331,23 @@ while win:is_running() do
         local scroll_frac = max_scroll > 0 and (1 - scroll_y / max_scroll) or 1
         local thumb_y = output_y + math.floor((sb_h - thumb_h) * scroll_frac)
         -- Track
-        chaos_gl.rect(sb_x, output_y, 6, sb_h, 0x00333344)
-        -- Thumb
-        chaos_gl.rect(sb_x, thumb_y, 6, thumb_h, 0x00666688)
+        local sb_track = theme and theme.slider_track or 0x00333344
+        local sb_thumb = theme and theme.slider_thumb_color or 0x00666688
+        chaos_gl.rect(sb_x, output_y, 6, sb_h, sb_track)
+        chaos_gl.rect(sb_x, thumb_y, 6, thumb_h, sb_thumb)
     end
 
     -- Input line
     local input_y = 380 - 24
-    chaos_gl.rect(0, input_y, 520, 24, 0x00222244)
+    local input_bg = theme and theme.titlebar_bg or 0x00222244
+    local cursor_c = theme and theme.field_cursor or 0x00FFFFFF
+    chaos_gl.rect(0, input_y, 520, 24, input_bg)
     chaos_gl.text(4, input_y + 4, "> " .. input_line, prompt_c, 0, 0)
 
     -- Cursor blink
     if cursor_visible then
         local cursor_x = 4 + chaos_gl.text_width("> " .. input_line:sub(1, cursor_pos))
-        chaos_gl.rect(cursor_x, input_y + 2, 2, 16, 0x00FFFFFF)
+        chaos_gl.rect(cursor_x, input_y + 2, 2, 16, cursor_c)
     end
 
     win:end_frame()

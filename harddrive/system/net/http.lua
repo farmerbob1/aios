@@ -32,30 +32,9 @@ local function parse_url(url)
     }
 end
 
--- Parse HTTP response into status, headers, body
+-- Parse HTTP response using picohttpparser (C library via aios.net.parse_http)
 local function parse_response(raw)
-    -- Find end of headers
-    local header_end = raw:find("\r\n\r\n")
-    if not header_end then
-        return nil, nil, raw
-    end
-
-    local header_part = raw:sub(1, header_end - 1)
-    local body = raw:sub(header_end + 4)
-
-    -- Parse status line
-    local status = tonumber(header_part:match("HTTP/%d%.%d (%d+)"))
-
-    -- Parse headers into table
-    local headers = {}
-    for line in header_part:gmatch("[^\r\n]+") do
-        local key, val = line:match("^([^:]+):%s*(.+)$")
-        if key then
-            headers[key:lower()] = val
-        end
-    end
-
-    return status, headers, body
+    return aios.net.parse_http(raw)
 end
 
 -- HTTP GET request
@@ -84,36 +63,98 @@ function http.get(url, timeout)
     local recv_fn = is_https and aios.net.tls_recv or aios.net.tcp_recv
     local close_fn = is_https and aios.net.tls_close or aios.net.tcp_close
 
-    -- Send request
-    local request = "GET " .. parsed.path .. " HTTP/1.0\r\n" ..
+    -- Send HTTP/1.1 request with Connection: close
+    local request = "GET " .. parsed.path .. " HTTP/1.1\r\n" ..
                     "Host: " .. parsed.host .. "\r\n" ..
                     "User-Agent: AIOS/2.0\r\n" ..
+                    "Accept: text/html,*/*\r\n" ..
+                    "Accept-Encoding: identity\r\n" ..
                     "Connection: close\r\n" ..
                     "\r\n"
 
-    local ok, serr = send_fn(sock, request)
-    if not ok then
+    local ok2, serr = send_fn(sock, request)
+    if not ok2 then
         close_fn(sock)
         return nil, 0, "send failed: " .. (serr or "unknown")
     end
 
-    -- Receive response (read until connection closes)
-    local parts = {}
-    local total = 0
-    while true do
-        local data = recv_fn(sock, 4096, timeout)
+    -- Phase 1: Accumulate data until headers are complete
+    local buf = ""
+    local status, headers
+    local chunk_to = 5000
+
+    while #buf < 65536 do
+        local data = recv_fn(sock, 8192, chunk_to)
         if not data then break end
-        parts[#parts + 1] = data
-        total = total + #data
-        if total > 1024 * 1024 then break end  -- 1MB limit
+        buf = buf .. data
+
+        -- Try parsing headers from accumulated data
+        print("[HTTP] try parse, buf=" .. #buf)
+        local s, h, body_start = aios.net.parse_http(buf)
+        if s then
+            print("[HTTP] parsed! status=" .. s .. " body=" .. #body_start)
+            status = s
+            headers = h
+            buf = body_start  -- remaining data after headers = start of body
+            break
+        end
+    end
+
+    if not status then
+        close_fn(sock)
+        return buf, 0, nil  -- return raw as body fallback
+    end
+
+    -- Phase 2: Read body — use Content-Length if available
+    local content_length = headers and headers["content-length"]
+    content_length = content_length and tonumber(content_length)
+
+    if content_length and content_length > 0 then
+        while #buf < content_length and #buf < 1024 * 1024 do
+            local want = content_length - #buf
+            if want > 8192 then want = 8192 end
+            local data = recv_fn(sock, want, chunk_to)
+            if not data then break end
+            buf = buf .. data
+        end
+    else
+        -- No content-length: read until connection closes (short timeout per chunk)
+        while #buf < 1024 * 1024 do
+            local data = recv_fn(sock, 8192, 2000)
+            if not data then break end
+            buf = buf .. data
+        end
+    end
+
+    local te = headers and headers["transfer-encoding"] or nil
+
+    -- Decode chunked transfer encoding if needed
+    if te and te:lower():find("chunked") then
+        local decoded = {}
+        local pos = 1
+        while pos <= #buf do
+            -- Find end of chunk size line
+            local nl = buf:find("\r\n", pos)
+            if not nl then break end
+            local hex = buf:sub(pos, nl - 1):match("^%s*(%x+)")
+            if not hex then break end
+            local chunk_size = tonumber(hex, 16)
+            if not chunk_size or chunk_size == 0 then break end
+            local data_start = nl + 2
+            local data_end = data_start + chunk_size - 1
+            if data_end > #buf then
+                -- Partial chunk — take what we have
+                decoded[#decoded + 1] = buf:sub(data_start)
+                break
+            end
+            decoded[#decoded + 1] = buf:sub(data_start, data_end)
+            pos = data_end + 3  -- skip \r\n after chunk data
+        end
+        buf = table.concat(decoded)
     end
 
     close_fn(sock)
-
-    local raw = table.concat(parts)
-    local status, headers, body = parse_response(raw)
-
-    return body, status or 0, headers
+    return buf, status, headers
 end
 
 -- HTTP POST request

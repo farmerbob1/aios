@@ -38,4 +38,11 @@ void  *bsearch(const void *key, const void *base, size_t nmemb, size_t size,
 
 long long llabs(long long x);
 
+double atof(const char *s);
+int    atoi(const char *s);
+long   atol(const char *s);
+
+/* alloca — stack allocation via GCC builtin */
+#define alloca __builtin_alloca
+
 #endif

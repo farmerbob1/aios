@@ -2,6 +2,7 @@
 
 local filetypes = require("filetypes")
 local AppWindow = require("appwindow")
+local Button = require("button")
 
 local W, H = 560, 420
 local win = AppWindow.new("Files", W, H, {x=80, y=60})
@@ -192,26 +193,30 @@ end
 
 refresh()
 
+-- Toolbar widgets
+local btn_back = Button.new("Back", function() go_back() end, {h=20})
+local btn_up   = Button.new("Up",   function() go_up() end, {h=20})
+local btn_view = Button.new("List", function()
+    view_mode = (view_mode == "grid") and "list" or "grid"
+    btn_view.text = (view_mode == "grid") and "List" or "Grid"
+end, {h=20})
+local file_buttons = {btn_back, btn_up}
+
 -- -- Drawing ---------------------------------------------------
 
 local function draw_toolbar(sw)
-    local text_c = theme and theme.text_primary or 0x00FFFFFF
     local toolbar_bg = theme and theme.tab_bg or 0x00353535
-    local btn_bg = theme and theme.button_normal or 0x00444444
     chaos_gl.rect(0, TITLEBAR_H, sw, TOOLBAR_H, toolbar_bg)
-    local btn_x = 4
-    local btns = {"Back", "Up"}
-    for _, label in ipairs(btns) do
-        local bw = chaos_gl.text_width(label) + 16
-        chaos_gl.rect_rounded(btn_x, TITLEBAR_H + 4, bw, 20, 3, btn_bg)
-        chaos_gl.text(btn_x + 8, TITLEBAR_H + 6, label, text_c, 0, 0)
-        btn_x = btn_x + bw + 4
+    local bx = 4
+    for _, btn in ipairs(file_buttons) do
+        btn:draw(bx, TITLEBAR_H + 4)
+        local bw = btn:get_size()
+        bx = bx + bw + 4
     end
-    -- View toggle (right side)
-    local vw_label = view_mode == "grid" and "List" or "Grid"
-    local vw_w = chaos_gl.text_width(vw_label) + 16
-    chaos_gl.rect_rounded(sw - vw_w - 4, TITLEBAR_H + 4, vw_w, 20, 3, btn_bg)
-    chaos_gl.text(sw - vw_w + 4, TITLEBAR_H + 6, vw_label, text_c, 0, 0)
+    -- View toggle on right
+    btn_view.text = (view_mode == "grid") and "List" or "Grid"
+    local vw, _ = btn_view:get_size()
+    btn_view:draw(sw - vw - 4, TITLEBAR_H + 4)
 end
 
 local function draw_pathbar(sw)
@@ -382,33 +387,18 @@ while win:is_running() do
 
     -- Process events
     for _, event in ipairs(win:poll_events()) do
-        if event.type == EVENT_MOUSE_DOWN and event.button == 1 then
+        -- Forward to toolbar button widgets first
+        local handled = false
+        for _, btn in ipairs(file_buttons) do
+            if btn:on_input(event) then handled = true; break end
+        end
+        if not handled and btn_view:on_input(event) then handled = true end
+
+        if not handled and event.type == EVENT_MOUSE_DOWN and event.button == 1 then
             local mx, my = event.mouse_x, event.mouse_y
 
-            -- Toolbar
-            if my >= TITLEBAR_H and my < TITLEBAR_H + TOOLBAR_H then
-                local bx = 4
-                local btns = {"Back", "Up"}
-                for _, label in ipairs(btns) do
-                    local bw = chaos_gl.text_width(label) + 16
-                    if mx >= bx and mx < bx + bw then
-                        if label == "Back" then go_back()
-                        elseif label == "Up" then go_up()
-                        end
-                        break
-                    end
-                    bx = bx + bw + 4
-                end
-                -- View toggle button (right side)
-                local vw_label = view_mode == "grid" and "List" or "Grid"
-                local vw_w = chaos_gl.text_width(vw_label) + 16
-                if mx >= sw - vw_w - 4 and mx < sw - 4 then
-                    view_mode = (view_mode == "grid") and "list" or "grid"
-                    scroll_y = 0
-                end
-
             -- List header clicks (sort)
-            elseif view_mode == "list" and my >= CONTENT_Y and my < CONTENT_Y + HEADER_H then
+            if view_mode == "list" and my >= CONTENT_Y and my < CONTENT_Y + HEADER_H then
                 if mx < sw - 170 then
                     if sort_col == "name" then sort_asc = not sort_asc
                     else sort_col = "name"; sort_asc = true end

@@ -48,7 +48,7 @@ if errorlevel 1 (
 if errorlevel 1 (
     echo Creating VM "%VMNAME%"...
     %VBOX% createvm --name "%VMNAME%" --ostype "Other_64" --register
-    %VBOX% modifyvm "%VMNAME%" --memory 256 --vram 64 --cpus 1
+    %VBOX% modifyvm "%VMNAME%" --memory 512 --vram 64 --cpus 1
     %VBOX% modifyvm "%VMNAME%" --firmware efi
     %VBOX% modifyvm "%VMNAME%" --graphicscontroller vboxvga
     %VBOX% modifyvm "%VMNAME%" --audio-driver dsound --audio-out on

@@ -58,6 +58,20 @@ double trunc(double x);
 double round(double x);
 double remainder(double x, double y);
 
+/* QuickJS needs these */
+long   lrint(double x);
+long long llrint(double x);
+double rint(double x);
+double cbrt(double x);
+double log1p(double x);
+double expm1(double x);
+double hypot(double x, double y);
+double acosh(double x);
+double asinh(double x);
+double atanh(double x);
+double fma(double x, double y, double z);
+double nearbyint(double x);
+
 float sinf(float x);
 float cosf(float x);
 float sqrtf(float x);
@@ -69,5 +83,10 @@ float powf(float base, float exponent);
 float logf(float x);
 float expf(float x);
 float strtof(const char *nptr, char **endptr);
+float atan2f(float y, float x);
+float acosf(float x);
+float tanf(float x);
+float roundf(float x);
+float truncf(float x);
 
 #endif

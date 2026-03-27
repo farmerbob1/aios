@@ -6,7 +6,7 @@
 #include "../include/boot_info.h"
 
 #define MAX_TASKS       32
-#define TASK_STACK_SIZE 16384
+#define TASK_STACK_SIZE 65536  /* 64KB — needed for deep HTML recursion */
 
 typedef enum {
     PRIORITY_HIGH   = 0,

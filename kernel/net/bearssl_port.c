@@ -62,11 +62,10 @@ struct tls_conn {
 
     /* lwIP TCP state */
     struct tcp_pcb *pcb;
-    uint8_t  recv_buf[4096];
-    uint16_t recv_len;
+    uint8_t  recv_buf[65536];   /* 64KB TLS recv buffer */
+    uint32_t recv_len;
     bool     recv_eof;
     bool     tcp_err;
-
     bool     active;
 };
 
@@ -88,10 +87,9 @@ static err_t tls_tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err
         return ERR_OK;
     }
 
-    /* Append to recv buffer */
-    uint16_t space = sizeof(conn->recv_buf) - conn->recv_len;
-    uint16_t copy = p->tot_len;
-    if (copy > space) copy = space;
+    /* Copy what fits into recv_buf, ACK only what we copied */
+    uint32_t space = sizeof(conn->recv_buf) - conn->recv_len;
+    uint16_t copy = (p->tot_len <= space) ? p->tot_len : (uint16_t)space;
     if (copy > 0) {
         pbuf_copy_partial(p, conn->recv_buf + conn->recv_len, copy, 0);
         conn->recv_len += copy;
@@ -189,13 +187,28 @@ struct tls_conn *tls_conn_create(void *tcp_pcb, const char *hostname) {
     /* Initialize SSL client context */
     if (AIOS_TAs_NUM > 0) {
         /* Full initialization with certificate validation */
-        br_x509_minimal_init(&conn->xc, &br_sha256_vtable,
-                             AIOS_TAs, AIOS_TAs_NUM);
-        br_x509_minimal_set_rsa(&conn->xc, br_rsa_i31_pkcs1_vrfy);
-        br_x509_minimal_set_ecdsa(&conn->xc,
-                                  &br_ec_prime_i31, br_ecdsa_i31_vrfy_asn1);
+        /* init_full sets up cipher suites, x509 engine, and trust anchors */
         br_ssl_client_init_full(&conn->sc, &conn->xc,
                                 AIOS_TAs, AIOS_TAs_NUM);
+
+        /* Set time AFTER init_full (init_full reinitializes xc).
+         * If NTP hasn't synced yet, wait up to 10 seconds for it. */
+        {
+            extern void sysclock_bearssl_time(uint32_t *d, uint32_t *s);
+            extern bool sysclock_synced(void);
+            uint32_t bdays, bsecs;
+
+            if (!sysclock_synced()) {
+                serial_printf("[bearssl] waiting for NTP sync...\n");
+                for (int i = 0; i < 100 && !sysclock_synced(); i++) {
+                    lwip_poll();
+                    task_sleep(100);
+                }
+            }
+
+            sysclock_bearssl_time(&bdays, &bsecs);
+            br_x509_minimal_set_time(&conn->xc, bdays, bsecs);
+        }
     } else {
         /* No trust anchors — init with no-verify for testing.
          * BearSSL requires at least the cipher suites to be set up. */
@@ -283,10 +296,15 @@ int tls_conn_write(struct tls_conn *conn, const void *data, size_t len) {
 
 int tls_conn_read(struct tls_conn *conn, void *buf, size_t len, int timeout_ms) {
     uint32_t start = millis();
+    size_t total = 0;
+    uint8_t *dst = (uint8_t *)buf;
 
-    while (1) {
-        lwip_poll();
-        tls_engine_pump(conn);
+    while (total < len) {
+        /* Pump multiple times to drain as much data as possible */
+        for (int pump = 0; pump < 8; pump++) {
+            lwip_poll();
+            if (tls_engine_pump(conn) <= 0) break;
+        }
 
         unsigned state = br_ssl_engine_current_state(&conn->sc.eng);
 
@@ -294,23 +312,37 @@ int tls_conn_read(struct tls_conn *conn, void *buf, size_t len, int timeout_ms) 
             size_t blen;
             unsigned char *app = br_ssl_engine_recvapp_buf(&conn->sc.eng, &blen);
             if (app && blen > 0) {
-                size_t copy = (blen > len) ? len : blen;
-                memcpy(buf, app, copy);
+                size_t want = len - total;
+                size_t copy = (blen > want) ? want : blen;
+                memcpy(dst + total, app, copy);
                 br_ssl_engine_recvapp_ack(&conn->sc.eng, copy);
-                return (int)copy;
+                total += copy;
+                /* Reset timeout on data received */
+                start = millis();
+                continue;  /* Try to get more immediately */
+            }
+        }
+
+        if (total > 0) {
+            /* We have some data — return what we have if engine is blocked */
+            if (!(state & BR_SSL_RECVAPP) && !(state & BR_SSL_RECVREC)) {
+                break;
             }
         }
 
         if (state == BR_SSL_CLOSED || conn->tcp_err) {
-            return 0;  /* Connection closed */
+            break;  /* Connection closed — return what we have */
         }
 
         if ((int)(millis() - start) > timeout_ms) {
-            return -1;  /* Timeout */
+            if (total > 0) break;  /* Return partial data */
+            return -1;  /* Timeout with no data */
         }
 
-        task_sleep(4);
+        task_sleep(2);  /* Shorter sleep for faster throughput */
     }
+
+    return (int)total;
 }
 
 void tls_conn_close(struct tls_conn *conn) {

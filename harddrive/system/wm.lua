@@ -132,14 +132,23 @@ function wm._draw_taskbar()
     local sep_w = (#wins > 0) and (DOCK_GAP + 2 + DOCK_GAP) or 0
     local stats_w = 48
     local clock_str_val = ""
+    local date_str_val = ""
     do
-        local millis = aios.os.millis()
-        local secs = math.floor(millis / 1000)
-        local mins = math.floor(secs / 60) % 60
-        local hrs = math.floor(secs / 3600) % 24
-        clock_str_val = string.format("%02d:%02d", hrs, mins)
+        local t = aios.os.time()
+        if t and t.synced then
+            local h = t.hour or 0
+            local ampm = h >= 12 and "PM" or "AM"
+            local h12 = h % 12
+            if h12 == 0 then h12 = 12 end
+            clock_str_val = string.format("%d:%02d %s", h12, t.min or 0, ampm)
+            date_str_val = string.format("%02d/%02d/%04d", t.day or 0, t.month or 0, t.year or 0)
+        else
+            local millis = aios.os.millis()
+            local secs = math.floor(millis / 1000)
+            clock_str_val = string.format("%02d:%02d", math.floor(secs / 3600) % 24, math.floor(secs / 60) % 60)
+        end
     end
-    local clock_w = chaos_gl.text_width(clock_str_val) + 8
+    local clock_w = math.max(chaos_gl.text_width(clock_str_val), chaos_gl.text_width(date_str_val)) + 8
 
     local content_w = menu_w + DOCK_GAP + app_w + sep_w + stats_w + DOCK_GAP + clock_w
     local pill_w = content_w + DOCK_PAD * 2
@@ -219,8 +228,13 @@ function wm._draw_taskbar()
     wm._draw_stats_widget(ix, iy)
     ix = ix + stats_w + DOCK_GAP
 
-    -- Clock
-    chaos_gl.text(ix, iy + (DOCK_ICON - fh) // 2, clock_str_val, sec_c, 0, 0)
+    -- Clock (time + date)
+    if #date_str_val > 0 then
+        chaos_gl.text(ix, iy + 2, clock_str_val, text_c, 0, 0)
+        chaos_gl.text(ix, iy + fh + 2, date_str_val, sec_c, 0, 0)
+    else
+        chaos_gl.text(ix, iy + (DOCK_ICON - fh) // 2, clock_str_val, sec_c, 0, 0)
+    end
 
     chaos_gl.surface_present(taskbar_surface)
 end
@@ -281,8 +295,11 @@ function wm._draw_stats_widget(x, y)
     by = by + bar_h + gap
     local info = aios.os.meminfo()
     local mem_pct = 0
-    if info and info.pmm_total_pages and info.pmm_total_pages > 0 then
-        mem_pct = 1.0 - (info.pmm_free_pages / info.pmm_total_pages)
+    if info then
+        local rp = info.pmm_ram_pages or info.pmm_total_pages or 1
+        if rp > 0 then
+            mem_pct = (rp - (info.pmm_free_pages or 0)) / rp
+        end
     end
     chaos_gl.rect(x + 4, by, bw, bar_h, 0x00222222)
     if mem_pct > 0 then

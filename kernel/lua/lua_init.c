@@ -17,10 +17,11 @@ extern lua_State *lua_state_create_minimal(void);
 extern void lua_state_destroy(lua_State *L);
 
 init_result_t lua_init(void) {
-    /* 1. Zero the KAOS binding table */
-    lua_kaos_init();
+    /* NOTE: lua_kaos_init() is NOT called here. KAOS modules may have
+     * already registered Lua bindings during kaos_load_all() which
+     * runs before lua_init(). Zeroing the table would wipe them. */
 
-    /* 2. Create a test lua_State to verify porting is correct */
+    /* 1. Create a test lua_State to verify porting is correct */
     lua_State *L = lua_state_create_minimal();
     if (!L) {
         serial_printf("[lua] Failed to create test state\n");

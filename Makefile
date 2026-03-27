@@ -59,7 +59,7 @@ LWIPDIR = vendor/lwip-2.2.0/src
 LWIP_CFLAGS = -ffreestanding -nostdlib -fno-builtin \
               -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 \
               -D__AIOS_KERNEL__ -Ikernel/net -Ikernel/net/arch -I$(LWIPDIR)/include -Iinclude/libc -I. \
-              -w -Wno-implicit-function-declaration
+              -w -Wno-implicit-function-declaration -Wno-int-conversion -Wno-error
 
 # lwIP kernel integration — same as kernel CFLAGS + lwIP headers
 LWIP_KERN_CFLAGS = $(CFLAGS) -Ikernel/net -I$(LWIPDIR)/include -Ikernel/net/arch \
@@ -75,6 +75,35 @@ BSSL_CFLAGS = -ffreestanding -nostdlib -fno-builtin \
 BSSL_KERN_CFLAGS = $(CFLAGS) -Iinclude/libc -I$(BSSLDIR)/inc -I$(BSSLDIR)/src \
                    -Ikernel/net -I$(LWIPDIR)/include -Ikernel/net/arch \
                    -Wno-unused-parameter -Wno-unused-variable
+
+# Lexbor vendor source — HTML5 parser, pure C99, Apache 2.0
+LEXBOR_DIR = vendor/lexbor
+LEXBOR_CFLAGS = -ffreestanding -nostdlib -fno-builtin \
+                -O2 -g -std=c99 -march=core2 -mno-sse -mno-mmx -mno-sse2 \
+                -D__AIOS_KERNEL__ -DLEXBOR_WITHOUT_THREADS -DLEXBOR_STATIC \
+                -I$(LEXBOR_DIR)/source -Iinclude/libc -I. -w
+
+# Lexbor kernel integration — layout engine + memory port
+LEXBOR_KERN_CFLAGS = $(CFLAGS) -Iinclude/libc -I$(LEXBOR_DIR)/source \
+                     -DLEXBOR_WITHOUT_THREADS -DLEXBOR_STATIC \
+                     -Wno-unused-parameter
+
+# QuickJS vendor source — ES2023 JavaScript engine, MIT license
+QJSDIR = vendor/quickjs
+QJS_CFLAGS = -ffreestanding -nostdlib -fno-builtin \
+             -O2 -g -std=c11 -march=core2 -mno-sse -mno-mmx -mno-sse2 \
+             -D__AIOS_KERNEL__ -DCONFIG_VERSION=\"2025-09-13\" \
+             -Iinclude/libc -I$(QJSDIR) -I. -w
+
+# QuickJS kernel integration — shim, init, DOM bridge
+QJS_KERN_CFLAGS = $(CFLAGS) -Iinclude/libc -I$(QJSDIR) \
+                  -I$(LEXBOR_DIR)/source -DLEXBOR_WITHOUT_THREADS -DLEXBOR_STATIC \
+                  -I$(LUADIR) -Ikernel/lua \
+                  -Wno-unused-parameter
+
+# QuickJS math shim — SSE2 for lrint/cbrt/hypot etc.
+QJS_MATH_CFLAGS = $(RENDERER_CFLAGS) -Iinclude/libc -I$(QJSDIR) \
+                  -Wno-unused-parameter -Wno-unused-variable
 
 # Assembler flags
 NASMFLAGS_BIN = -f bin
@@ -152,7 +181,8 @@ C_SOURCES = \
     $(KERNDIR)/compression/lz4.c \
     $(KERNDIR)/compression/cpk.c \
     $(INCDIR)/string.c \
-    $(RENDDIR)/compositor.c
+    $(RENDDIR)/compositor.c \
+    vendor/picohttpparser.c
 
 # Renderer sources — compiled with RENDERER_CFLAGS (SSE2 enabled)
 RENDERER_SOURCES = \
@@ -195,7 +225,8 @@ LUA_KERNEL_SOURCES = \
     $(KERNDIR)/lua/lua_chaosgl.c \
     $(KERNDIR)/lua/lua_aios_wm.c \
     $(KERNDIR)/lua/lua_aios_audio.c \
-    $(KERNDIR)/lua/lua_aios_cpk.c
+    $(KERNDIR)/lua/lua_aios_cpk.c \
+    $(KERNDIR)/lua/lua_html.c
 
 # ===== lwIP sources =====
 
@@ -203,14 +234,16 @@ LUA_KERNEL_SOURCES = \
 LWIP_VENDOR_SOURCES = $(wildcard $(LWIPDIR)/core/*.c) \
                       $(wildcard $(LWIPDIR)/core/ipv4/*.c) \
                       $(wildcard $(LWIPDIR)/api/*.c) \
-                      $(LWIPDIR)/netif/ethernet.c
+                      $(LWIPDIR)/netif/ethernet.c \
+                      $(LWIPDIR)/apps/sntp/sntp.c
 
 # lwIP kernel integration sources
 LWIP_KERNEL_SOURCES = \
     $(KERNDIR)/net/sys_arch.c \
     $(KERNDIR)/net/lwip_netif.c \
     $(KERNDIR)/net/lwip_init.c \
-    $(KERNDIR)/net/lua_net.c
+    $(KERNDIR)/net/lua_net.c \
+    $(KERNDIR)/net/sysclock.c
 
 # ===== BearSSL sources =====
 
@@ -233,6 +266,51 @@ BSSL_KERNEL_SOURCES = \
     $(KERNDIR)/net/bearssl_port.c \
     $(KERNDIR)/net/trust_anchors.c
 
+# ===== Lexbor sources =====
+
+LEXBOR_VENDOR_SOURCES = $(wildcard $(LEXBOR_DIR)/source/lexbor/core/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/html/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/html/interfaces/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/html/tokenizer/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/html/tree/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/html/tree/insertion_mode/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/dom/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/dom/interfaces/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/tag/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/ns/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/css/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/css/at_rule/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/css/property/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/css/selectors/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/css/syntax/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/css/syntax/tokenizer/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/css/unit/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/css/value/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/selectors/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/style/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/style/dom/interfaces/*.c) \
+                        $(wildcard $(LEXBOR_DIR)/source/lexbor/style/html/interfaces/*.c) \
+                        $(LEXBOR_DIR)/source/lexbor/ports/posix/lexbor/core/memory.c
+
+LEXBOR_KERNEL_SOURCES = \
+    $(KERNDIR)/html/lexbor_port.c \
+    $(KERNDIR)/html/html_layout.c
+
+# ===== QuickJS sources =====
+
+QJS_VENDOR_SOURCES = \
+    $(QJSDIR)/quickjs.c \
+    $(QJSDIR)/cutils.c \
+    $(QJSDIR)/libregexp.c \
+    $(QJSDIR)/libunicode.c \
+    $(QJSDIR)/dtoa.c
+
+QJS_KERNEL_SOURCES = \
+    $(KERNDIR)/js/qjs_shim.c \
+    $(KERNDIR)/js/qjs_init.c \
+    $(KERNDIR)/js/qjs_dom.c \
+    $(KERNDIR)/js/qjs_bridge.c
+
 # ===== Object files =====
 C_OBJECTS        = $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SOURCES))
 RENDERER_OBJECTS = $(patsubst %.c,$(BUILDDIR)/%.o,$(RENDERER_SOURCES))
@@ -251,6 +329,15 @@ LWIP_KERNEL_OBJECTS = $(patsubst $(KERNDIR)/net/%.c,$(BUILDDIR)/$(KERNDIR)/net/%
 # BearSSL objects
 BSSL_VENDOR_OBJECTS = $(patsubst $(BSSLDIR)/%.c,$(BUILDDIR)/$(BSSLDIR)/%.o,$(BSSL_VENDOR_SOURCES))
 BSSL_KERNEL_OBJECTS = $(patsubst $(KERNDIR)/net/%.c,$(BUILDDIR)/$(KERNDIR)/net/%.o,$(BSSL_KERNEL_SOURCES))
+
+# Lexbor objects
+LEXBOR_VENDOR_OBJECTS = $(patsubst $(LEXBOR_DIR)/%.c,$(BUILDDIR)/$(LEXBOR_DIR)/%.o,$(LEXBOR_VENDOR_SOURCES))
+LEXBOR_KERNEL_OBJECTS = $(patsubst $(KERNDIR)/html/%.c,$(BUILDDIR)/$(KERNDIR)/html/%.o,$(LEXBOR_KERNEL_SOURCES))
+
+# QuickJS objects
+QJS_VENDOR_OBJECTS  = $(patsubst $(QJSDIR)/%.c,$(BUILDDIR)/$(QJSDIR)/%.o,$(QJS_VENDOR_SOURCES))
+QJS_KERNEL_OBJECTS  = $(patsubst $(KERNDIR)/js/%.c,$(BUILDDIR)/$(KERNDIR)/js/%.o,$(QJS_KERNEL_SOURCES))
+QJS_MATH_OBJECT     = $(BUILDDIR)/$(KERNDIR)/js/qjs_math_shim.o
 
 # ===== Audio decoder sources (special CFLAGS) =====
 
@@ -276,12 +363,19 @@ STBTT_CFLAGS = $(RENDERER_CFLAGS) -Ivendor/stb -Iinclude/libc -I. -w
 
 STBTT_OBJECT = $(BUILDDIR)/$(RENDDIR)/ttf_font.o
 
+# NanoSVG — SSE2 for float rasterization, suppress vendor warnings
+NSVG_CFLAGS = $(RENDERER_CFLAGS) -Ivendor/nanosvg -Iinclude/libc -I. -w
+
+NSVG_OBJECT = $(BUILDDIR)/$(RENDDIR)/svg_decode.o
+
 ALL_OBJECTS = $(C_OBJECTS) $(RENDERER_OBJECTS) $(ASM_OBJECTS) \
               $(LUA_VENDOR_OBJECTS) $(LUA_KERNEL_OBJECTS) \
               $(LUA_MATH_OBJECT) $(LUA_ASM_OBJECT) \
               $(LWIP_VENDOR_OBJECTS) $(LWIP_KERNEL_OBJECTS) \
               $(BSSL_VENDOR_OBJECTS) $(BSSL_KERNEL_OBJECTS) \
-              $(MP3_OBJECT) $(TSF_OBJECT) $(STB_OBJECT) $(STBTT_OBJECT)
+              $(LEXBOR_VENDOR_OBJECTS) $(LEXBOR_KERNEL_OBJECTS) \
+              $(QJS_VENDOR_OBJECTS) $(QJS_KERNEL_OBJECTS) $(QJS_MATH_OBJECT) \
+              $(MP3_OBJECT) $(TSF_OBJECT) $(STB_OBJECT) $(STBTT_OBJECT) $(NSVG_OBJECT)
 
 # Module .kaos files (compiled from modules/*.c)
 MODULE_SOURCES = $(wildcard $(MODDIR)/*.c)
@@ -335,6 +429,40 @@ $(BUILDDIR)/$(KERNDIR)/net/trust_anchors.o: $(KERNDIR)/net/trust_anchors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(BSSL_KERN_CFLAGS) -c $< -o $@
 
+# ===== Lexbor compilation rules (must be before generic rules) =====
+
+# Lexbor vendor source -> object (suppress all warnings)
+$(BUILDDIR)/$(LEXBOR_DIR)/%.o: $(LEXBOR_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LEXBOR_CFLAGS) -c $< -o $@
+
+# Lexbor kernel integration -> object
+$(BUILDDIR)/$(KERNDIR)/html/%.o: $(KERNDIR)/html/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LEXBOR_KERN_CFLAGS) -c $< -o $@
+
+# Lua HTML binding -> object (needs Lexbor + Lua headers)
+$(BUILDDIR)/$(KERNDIR)/lua/lua_html.o: $(KERNDIR)/lua/lua_html.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LUA_KERN_CFLAGS) -I$(LEXBOR_DIR)/source -DLEXBOR_WITHOUT_THREADS -DLEXBOR_STATIC -c $< -o $@
+
+# ===== QuickJS compilation rules (must be before generic rules) =====
+
+# QuickJS vendor source -> object (suppress all warnings)
+$(BUILDDIR)/$(QJSDIR)/%.o: $(QJSDIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(QJS_CFLAGS) -c $< -o $@
+
+# QuickJS math shim -> object (SSE2 enabled)
+$(QJS_MATH_OBJECT): $(KERNDIR)/js/qjs_math_shim.c
+	@mkdir -p $(dir $@)
+	$(CC) $(QJS_MATH_CFLAGS) -c $< -o $@
+
+# QuickJS kernel integration -> object
+$(BUILDDIR)/$(KERNDIR)/js/%.o: $(KERNDIR)/js/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(QJS_KERN_CFLAGS) -c $< -o $@
+
 # ===== Audio decoder compilation rules =====
 
 # minimp3 wrapper — special CFLAGS (no SSE, vendor header warnings suppressed)
@@ -351,6 +479,11 @@ $(BUILDDIR)/$(KERNDIR)/audio/midi_render.o: $(KERNDIR)/audio/midi_render.c
 $(BUILDDIR)/$(RENDDIR)/stb_image_decode.o: $(RENDDIR)/stb_image_decode.c
 	@mkdir -p $(dir $@)
 	$(CC) $(STB_CFLAGS) -c $< -o $@
+
+# NanoSVG wrapper — SSE2 for float rasterization
+$(NSVG_OBJECT): $(RENDDIR)/svg_decode.c
+	@mkdir -p $(dir $@)
+	$(CC) $(NSVG_CFLAGS) -c $< -o $@
 
 # stb_truetype wrapper — SSE2 for float rasterization
 $(BUILDDIR)/$(RENDDIR)/ttf_font.o: $(RENDDIR)/ttf_font.c
@@ -374,6 +507,10 @@ $(BUILDDIR)/$(KERNDIR)/net/lwip_netif.o: $(KERNDIR)/net/lwip_netif.c
 	$(CC) $(LWIP_KERN_CFLAGS) -c $< -o $@
 
 $(BUILDDIR)/$(KERNDIR)/net/lwip_init.o: $(KERNDIR)/net/lwip_init.c
+	@mkdir -p $(dir $@)
+	$(CC) $(LWIP_KERN_CFLAGS) -c $< -o $@
+
+$(BUILDDIR)/$(KERNDIR)/net/sysclock.o: $(KERNDIR)/net/sysclock.c
 	@mkdir -p $(dir $@)
 	$(CC) $(LWIP_KERN_CFLAGS) -c $< -o $@
 
@@ -423,6 +560,11 @@ $(BUILDDIR)/$(KERNDIR)/phase10_tests.o: $(KERNDIR)/phase10_tests.c
 	@mkdir -p $(dir $@)
 	$(CC) $(LUA_KERN_CFLAGS) -c $< -o $@
 
+# picohttpparser — needs libc shims for sys/types.h
+$(BUILDDIR)/vendor/picohttpparser.o: vendor/picohttpparser.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude/libc -w -c $< -o $@
+
 # ===== Generic compilation rules =====
 
 # Compositor — compiled with kernel CFLAGS (no SSE) so it's safe to call from any task
@@ -464,7 +606,7 @@ $(BUILDDIR)/os.img: $(BUILDDIR)/BOOTX64.EFI $(BUILDDIR)/kernel.elf $(MODULE_KAOS
 run: $(BUILDDIR)/os.img
 	$(QEMU) \
 		-cpu core2duo \
-		-m 256 \
+		-m 512 \
 		-vga std \
 		-drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" \
 		-drive format=raw,file=$(BUILDDIR)/os.img \
@@ -480,7 +622,7 @@ run: $(BUILDDIR)/os.img
 run-debug: $(BUILDDIR)/os.img
 	$(QEMU) \
 		-cpu core2duo \
-		-m 256 \
+		-m 512 \
 		-vga std \
 		-drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" \
 		-drive format=raw,file=$(BUILDDIR)/os.img \

@@ -24,6 +24,7 @@ typedef struct {
 } chaos_gl_texture_t;
 
 int  chaos_gl_texture_load(const char* path);
+int  chaos_gl_texture_load_from_memory(const uint8_t* data, uint32_t len);
 void chaos_gl_texture_free(int handle);
 const chaos_gl_texture_t* chaos_gl_texture_get(int handle);
 void chaos_gl_texture_get_size(int handle, int* w, int* h);

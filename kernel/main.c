@@ -197,6 +197,11 @@ void kernel_main(struct boot_info* info) {
     r = lua_init();
     boot_log("Lua 5.5 runtime", r);
 
+    /* QuickJS JavaScript engine */
+    extern int qjs_init(void);
+    int qjs_r = qjs_init();
+    boot_log("QuickJS JS engine", qjs_r == 0 ? INIT_OK : INIT_FAIL);
+
     boot_splash_status("Loading desktop...");
 
     /* Launch desktop shell as a Lua task */

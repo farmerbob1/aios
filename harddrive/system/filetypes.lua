@@ -11,7 +11,7 @@ local ext_to_type = {
     lua = "lua", c = "text", h = "text", asm = "text",
     -- Images
     png = "image", jpg = "image", jpeg = "image", bmp = "image",
-    gif = "image", raw = "image",
+    gif = "image", raw = "image", svg = "image",
     -- Audio
     wav = "audio", mp3 = "audio", mid = "audio", pcm = "audio",
     -- 3D
